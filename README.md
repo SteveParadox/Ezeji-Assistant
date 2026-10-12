@@ -31,7 +31,9 @@ APP_URL=https://your-vercel-domain.vercel.app
 
 After deployment, put the backend URL into Vercel as `VITE_API_URL`, then redeploy the frontend.
 
-Run `supabase/invoices.sql` in the Supabase SQL Editor before enabling payment webhooks.
+Run `supabase/invoices.sql` and `supabase/staff_access.sql` in the Supabase SQL Editor before enabling payment webhooks or staff invitations.
+
+Staff invitations use Supabase Auth email delivery. Keep `SUPABASE_SERVICE_ROLE_KEY` on the server only; never prefix it with `VITE_`. Configure Supabase Auth email delivery and allow the production `APP_URL` as a redirect URL before sending invitations. For the Vercel API route in this project, set `VITE_API_URL` to `https://your-vercel-domain.vercel.app/api` and `APP_URL` to `https://your-vercel-domain.vercel.app`.
 
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 

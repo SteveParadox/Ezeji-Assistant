@@ -8,6 +8,49 @@ function inferPrice(type, serviceName, description) {
   return 'contact us';
 }
 
+export function buildAssistantReply(message, profile = {}, conversation = []) {
+  const text = `${message || ''}`.trim();
+  const context = getBusinessContext(profile);
+  const { businessName, serviceName, priceText, hoursText, description } = context;
+  const lower = text.toLowerCase();
+  const isGreeting = /^(hi|hello|hey|good morning|good afternoon|good evening)/.test(lower);
+  const isPricingQuestion = /(how much|price|cost|quote|rate|payment|paid)/.test(lower);
+  const isBookingQuestion = /(book|reserve|appointment|slot|date|time|room|suite|stay|guest|reservation|friday|saturday|sunday|tomorrow|today|weekend)/.test(lower);
+  const isHoursQuestion = /(hour|open|closed|when|available|today|tomorrow)/.test(lower);
+
+  if (!text) {
+    return `Hi there! I’m ${businessName}'s assistant. What can I help with today?`;
+  }
+
+  if (isGreeting) {
+    return `Hi there! I’m ${businessName}'s assistant. How can I help with ${serviceName.toLowerCase()} or your booking today?`;
+  }
+
+  if (isPricingQuestion) {
+    const priceLine = priceText && priceText !== 'contact us' ? `${serviceName} is ${priceText}.` : `I can help with the current pricing for ${serviceName}.`;
+    return `${priceLine} If you'd like, I can also help with availability or the next step.`;
+  }
+
+  if (isHoursQuestion) {
+    const hoursLine = hoursText ? `We’re typically available ${hoursText}.` : `I’m not seeing hours saved yet, but I can help check the best time.`;
+    return `${businessName}'s assistant here — ${hoursLine}`;
+  }
+
+  if (isBookingQuestion) {
+    const bookingLine = /two adults|for two|guests|couple|family/.test(lower)
+      ? 'I can help narrow it down by date, guest count, and preferred timing.'
+      : 'I can help with dates, availability, and the best option for you.';
+    const detailLine = description ? ` ${description.split(/[.!?]/)[0]}.` : '';
+    return `${businessName}'s assistant here — I can help with that. ${bookingLine}${detailLine}`;
+  }
+
+  const serviceLine = serviceName && serviceName !== 'your main service'
+    ? `I can help with ${serviceName} and the next steps.`
+    : 'I can help with bookings, availability, and service questions.';
+
+  return `${businessName}'s assistant here — ${serviceLine} What would you like to know?`;
+}
+
 export function buildAssistantRequestPayload(message, profile = {}, conversation = [], extras = {}, options = {}) {
   const context = getBusinessContext(profile);
   const { faqs = [], services = [] } = extras;

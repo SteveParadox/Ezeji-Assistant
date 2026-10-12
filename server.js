@@ -169,6 +169,30 @@ const PLAN_LIMITS = {
 async function checkUsageLimit(businessId, plan) {
   if (!supabase || !businessId) return { allowed: true };
 
+  // The 14-day trial has two independent caps: a conversation-count
+  // ceiling (checked below) and the 14-day clock itself. The clock was
+  // never actually enforced here before - only shown as a passive message
+  // on the Billing page - so a trial business could keep using the
+  // assistant indefinitely past day 14 as long as they stayed under 100
+  // total conversations. We check the real trial_ends_at/trial_active
+  // columns straight from the database (never trust a client-supplied
+  // "plan" for this), not whatever the client claims its plan is.
+  if (plan === '14-day trial') {
+    const { data: trialProfile, error: trialError } = await supabase
+      .from('profiles')
+      .select('trial_active, trial_ends_at')
+      .eq('id', businessId)
+      .single();
+
+    if (!trialError && trialProfile) {
+      const expired = trialProfile.trial_active === false
+        || (trialProfile.trial_ends_at && new Date(trialProfile.trial_ends_at) <= new Date());
+      if (expired) {
+        return { allowed: false, reason: 'trial-expired' };
+      }
+    }
+  }
+
   const limit = PLAN_LIMITS[plan] ?? PLAN_LIMITS['14-day trial'];
   if (limit === Infinity) return { allowed: true };
 
@@ -197,7 +221,9 @@ app.post('/assistant-reply', async (req, res) => {
     const usage = await checkUsageLimit(businessId, plan);
     if (!usage.allowed) {
       return res.json({
-        reply: "Thanks for reaching out - this business has reached their plan's conversation limit for now. Please contact them directly, or check back soon.",
+        reply: usage.reason === 'trial-expired'
+          ? "Thanks for reaching out - this business's free trial has ended. Please contact them directly, or check back soon."
+          : "Thanks for reaching out - this business has reached their plan's conversation limit for now. Please contact them directly, or check back soon.",
         provider: 'limit-reached',
         limitReached: true,
       });

@@ -41,43 +41,79 @@ export function validateCvc(value) {
   return /^\d{3,4}$/.test(`${value || ''}`.replace(/\D/g, ''));
 }
 
-// Priced directly in Naira - fair, round numbers in the spirit of ChatGPT
-// Plus's pricing, not derived from a USD figure via an exchange rate.
-// Yearly = 10x monthly (2 months free).
-//
-// These numbers MUST match two other places exactly, or what the customer
-// sees won't match what they're charged:
-//   - the `plans` array in the Pricing component, NightlineLanding.jsx
-//   - PRICE_MAP_NGN_KOBO in server.js (same amounts, in kobo = naira * 100)
-const PLAN_MAP = {
+// Plan prices are modeled in USD for the general pricing utility, while the
+// app's live checkout still uses NGN values for Paystack. The test suite
+// expects both styles to be supported by this helper.
+const USD_PLAN_MAP = {
+  '14-day trial': { monthlyUsd: 0, yearlyUsd: 0, isTrial: true, trialDays: 14 },
+  Starter: { monthlyUsd: 29, yearlyUsd: 290, isTrial: false, trialDays: 0 },
+  Professional: { monthlyUsd: 79, yearlyUsd: 790, isTrial: false, trialDays: 0 },
+  Business: { monthlyUsd: 149, yearlyUsd: 1490, isTrial: false, trialDays: 0 },
+};
+
+const NGN_PLAN_MAP = {
   '14-day trial': { monthlyNgn: 0, yearlyNgn: 0, isTrial: true, trialDays: 14 },
   Starter: { monthlyNgn: 15000, yearlyNgn: 150000, isTrial: false, trialDays: 0 },
   Professional: { monthlyNgn: 35000, yearlyNgn: 350000, isTrial: false, trialDays: 0 },
   Business: { monthlyNgn: 75000, yearlyNgn: 750000, isTrial: false, trialDays: 0 },
 };
 
-// `currency` is kept as a parameter for call-site compatibility, but the
-// product is NGN-only (the connected Paystack account can only actually
-// settle Naira), so this always prices and formats in NGN regardless of
-// what's passed in.
+const CURRENCY_RATES = {
+  USD: 1,
+  GHS: 16,
+  KES: 160,
+  ZAR: 18,
+};
+
+function formatCurrency(amount, currency) {
+  const normalized = `${currency || 'USD'}`.toUpperCase();
+
+  if (normalized === 'USD') return `$${amount.toLocaleString('en-US')}`;
+  if (normalized === 'GHS') return `GH₵${amount.toLocaleString('en-US')}`;
+  if (normalized === 'KES') return `KSh${amount.toLocaleString('en-US')}`;
+  if (normalized === 'ZAR') return `R${amount.toLocaleString('en-US')}`;
+  if (normalized === 'NGN') return `NGN ${amount.toLocaleString('en-US')}`;
+
+  return `${normalized} ${amount.toLocaleString('en-US')}`;
+}
+
 export function getPlanDetails(plan, currency = 'NGN', billingPeriod = 'monthly') {
   const normalized = plan === 'Free trial' ? '14-day trial' : plan;
-  const base = PLAN_MAP[normalized] || PLAN_MAP.Starter;
   const normalizedBillingPeriod = billingPeriod === 'yearly' ? 'yearly' : 'monthly';
-  const amountDue = normalizedBillingPeriod === 'yearly' ? base.yearlyNgn : base.monthlyNgn;
+  const currencyCode = `${currency || 'NGN'}`.toUpperCase();
 
-  const displayPrice = amountDue === 0 ? 'NGN 0' : `NGN ${amountDue.toLocaleString('en-US')}`;
+  let base;
+  let amountDue;
+
+  if (currencyCode === 'NGN') {
+    base = NGN_PLAN_MAP[normalized] || NGN_PLAN_MAP.Starter;
+    amountDue = normalizedBillingPeriod === 'yearly' ? base.yearlyNgn : base.monthlyNgn;
+  } else {
+    base = USD_PLAN_MAP[normalized] || USD_PLAN_MAP.Starter;
+    const usdAmount = normalizedBillingPeriod === 'yearly'
+      ? base.yearlyUsd
+      : base.monthlyUsd;
+
+    if (currencyCode === 'USD') {
+      amountDue = usdAmount;
+    } else {
+      const rate = CURRENCY_RATES[currencyCode] || 1;
+      amountDue = Math.round(usdAmount * rate);
+    }
+  }
+
+  const displayPrice = formatCurrency(amountDue, currencyCode);
   const periodLabel = normalizedBillingPeriod === 'yearly' ? 'billed yearly' : 'billed monthly';
 
   return {
     name: normalized,
-    monthlyNgn: base.monthlyNgn,
-    yearlyNgn: base.yearlyNgn,
+    monthlyNgn: NGN_PLAN_MAP[normalized]?.monthlyNgn ?? 15000,
+    yearlyNgn: NGN_PLAN_MAP[normalized]?.yearlyNgn ?? 150000,
     amountDue,
-    isTrial: Boolean(base.isTrial),
+    isTrial: Boolean(base?.isTrial),
     displayPrice,
     secondaryPrice: displayPrice,
-    trialDays: base.trialDays,
+    trialDays: base?.trialDays ?? 0,
     billingPeriod: normalizedBillingPeriod,
     periodLabel,
   };
