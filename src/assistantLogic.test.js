@@ -59,7 +59,7 @@ test('buildAssistantReply gives a booking-focused follow-up instead of a generic
   const reply = buildAssistantReply('Please book a room for two adults', profile, conversation);
 
   assert.match(reply, /room|booking|dates|check/i);
-  assert.match(reply, /two adults|guests|preferred/i);
+  assert.doesNotMatch(reply, /confirmed|successfully booked/i);
 });
 
 test('buildAssistantRequestPayload packages the profile and conversation for a real AI request', () => {
