@@ -88,7 +88,7 @@ async function processEvent(event) {
         last_error:"Previous AI attempt outcome uncertain; manual review required"});
       return;
     }
-    if(reserveError.code==="P0001"||reserveError.code==="42501"){
+    if(reserveError.code==="P0001"||reserveError.code==="P0004"||reserveError.code==="42501"){
       await saveEvent(event,{status:"dead",lease_until:null,last_error:"AI quota unavailable"});
       return;
     }
