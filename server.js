@@ -575,6 +575,23 @@ app.post('/booking-requests', async (req,res) => {
 });
 
 app.get('/health', (req,res) => res.json({status:'alive'}));
+app.get('/health/ready', async(req,res)=>{
+  if(!supabase)return res.status(503).json({status:'not_ready',reason:'database'});
+  try {
+    const {data,error}=await supabase.rpc('production_billing_ready');
+    if(error||data!==true)throw new Error('required migrations unavailable');
+    const {error:dbError}=await supabase.from('profiles').select('id',{head:true,count:'exact'}).limit(1);
+    if(dbError)throw dbError;
+    return res.json({status:'ready',database:'ready',billingMigrations:'ready',
+      paystackConfigured:!!process.env.PAYSTACK_SECRET_KEY,
+      aiConfigured:!!process.env.GROQ_API_KEY,
+      whatsappWorker:'independent-service'});
+  }catch(error){
+    console.error('Dependency readiness failure',error.message);
+    return res.status(503).json({status:'not_ready',reason:'dependencies'});
+  }
+});
+
 
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
