@@ -7,6 +7,8 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { spawnSync, execFile } from "node:child_process";
 import { promisify } from "node:util";
+import fs from "node:fs";
+import path from "node:path";
 
 const databaseUrl = process.env.PAYSTACK_TEST_DATABASE_URL;
 const psqlFound = spawnSync("psql", ["--version"], { encoding: "utf8" }).status === 0;
@@ -28,16 +30,18 @@ function runFile(filename) {
 function id() { return crypto.randomUUID(); }
 function ref() { return "ezeji_" + crypto.randomUUID().replaceAll("-", ""); }
 function createOwner(ownerId) {
-  runSql(`insert into public.profiles(id) values ('${ownerId}')`);
+  runSql(`begin;set local request.jwt.claim.role='service_role';
+    insert into auth.users(id) values('${ownerId}');
+    insert into public.profiles(id,business,trial_ends_at) values('${ownerId}','Test',now()+interval '14 days');commit;`);
 }
 function createAttempt(businessId, reference, plan = "Professional", amount = 3500000, period = "monthly") {
-  runSql(`insert into public.payment_attempts(business_id, provider_reference, plan, billing_period, expected_amount, currency, customer_email, status)
-    values ('${businessId}', '${reference}', '${plan}', '${period}', ${amount}, 'NGN', 'owner@example.test', 'initialized')`);
+  runSql(`insert into public.checkout_attempts(business_id, user_id, provider_reference, plan, billing_period, expected_amount, currency, customer_email, status)
+    values ('${businessId}', '${businessId}', '${reference}', '${plan}', '${period}', ${amount}, 'NGN', 'owner@example.test', 'initialized')`);
 }
 function settleSql(reference, amount = 3500000, txnId = "808") {
   return `begin; set local request.jwt.claim.role = 'service_role';
     select outcome from public.settle_paystack_payment(
-      '${reference}',${amount},'NGN','owner@example.test','${txnId}');
+      '${reference}',${amount},'NGN','owner@example.test','${txnId}',now());
     commit;`;
 }
 function oneValue(sql) { return runSql(sql).stdout.split(/\s+/).at(-1); }
@@ -55,18 +59,11 @@ test("atomic Paystack settlement against isolated real PostgreSQL", options, asy
       as 'select current_setting(''request.jwt.claim.role'',true)';
     create or replace function auth.uid() returns uuid language sql stable
       as 'select null::uuid';
-    create table if not exists public.profiles (
-      id uuid primary key,
-      plan text not null default '14-day trial',
-      payment_status text not null default 'trial',
-      billing_period text not null default 'monthly',
-      currency text not null default 'NGN',
-      trial_active boolean not null default true,
-      trial_ends_at timestamptz
-    );
+    create table if not exists auth.users(id uuid primary key);
   `);
-  runFile("supabase/invoices.sql");
-  runFile("supabase/migrations/202610130002_atomic_paystack_settlement.sql");
+  for (const file of fs.readdirSync("supabase/migrations").filter(x=>x.endsWith(".sql")).sort()) {
+    runFile(path.join("supabase/migrations",file));
+  }
 
   await t.test("valid payment and replay create one invoice without reactivating", () => {
     const owner = id(), reference = ref();
@@ -77,7 +74,7 @@ test("atomic Paystack settlement against isolated real PostgreSQL", options, asy
     const plan = oneValue(`select plan from public.profiles where id='${owner}'`);
     assert.equal(plan, "Professional");
     // Repeat using actual transaction ID from first settlement.
-    const txn = oneValue(`select provider_transaction_id from public.payment_attempts where provider_reference='${reference}'`);
+    const txn = oneValue(`select provider_transaction_id from public.checkout_attempts where provider_reference='${reference}'`);
     assert.match(runSql(settleSql(reference, 3500000, txn)).stdout, /already_settled/);
     assert.equal(oneValue(`select count(*) from public.invoices where provider_reference='${reference}'`), "1");
   });
@@ -92,7 +89,7 @@ test("atomic Paystack settlement against isolated real PostgreSQL", options, asy
     try {
       assert.equal(runSql(settleSql(reference,3500000,id()), { allowError: true }).success, false);
       assert.equal(oneValue(`select payment_status from public.profiles where id='${owner}'`), "trial");
-      assert.equal(oneValue(`select status from public.payment_attempts where provider_reference='${reference}'`), "initialized");
+      assert.equal(oneValue(`select status from public.checkout_attempts where provider_reference='${reference}'`), "initialized");
       assert.equal(oneValue(`select count(*) from public.invoices where provider_reference='${reference}'`), "0");
     } finally {
       runSql("drop trigger reject_test_invoice on public.invoices; drop function public.reject_test_invoice();");
@@ -109,7 +106,7 @@ test("atomic Paystack settlement against isolated real PostgreSQL", options, asy
     try {
       assert.equal(runSql(settleSql(reference,3500000,id()), { allowError: true }).success, false);
       assert.equal(oneValue(`select count(*) from public.invoices where provider_reference='${reference}'`), "0");
-      assert.equal(oneValue(`select status from public.payment_attempts where provider_reference='${reference}'`), "initialized");
+      assert.equal(oneValue(`select status from public.checkout_attempts where provider_reference='${reference}'`), "initialized");
     } finally {
       runSql("drop trigger reject_test_subscription on public.profiles; drop function public.reject_test_subscription();");
     }
@@ -120,28 +117,28 @@ test("atomic Paystack settlement against isolated real PostgreSQL", options, asy
     createOwner(owner); createAttempt(owner, reference);
     const sql = settleSql(reference, 3500000, transactionId);
     const command = promisify(execFile);
-    const results = await Promise.all(Array.from({ length: 20 }, () =>
+    const results = await Promise.all(Array.from({ length: 50 }, () =>
       command("psql", [...psqlArgs, "-d", databaseUrl, "-c", sql])
         .then(r => r.stdout).catch(e => { throw new Error(e.stderr || e.message); })
     ));
     assert.equal(results.filter(v => /(?:^|\n)settled(?:\n|$)/.test(v)).length, 1);
-    assert.equal(results.filter(v => /already_settled/.test(v)).length, 19);
+    assert.equal(results.filter(v => /already_settled/.test(v)).length, 49);
     assert.equal(oneValue(`select count(*) from public.invoices where provider_reference='${reference}'`), "1");
-    assert.equal(oneValue(`select status from public.payment_attempts where provider_reference='${reference}'`), "settled");
+    assert.equal(oneValue(`select status from public.checkout_attempts where provider_reference='${reference}'`), "settled");
   });
 
   await t.test("newer paid plan remains active when older success arrives late", () => {
     const owner=id(), older=ref(), newer=ref();
     createOwner(owner); createAttempt(owner, older);
     // Ensure deterministic ordering without sleeps.
-    runSql(`update public.payment_attempts set created_at = now() - interval '1 day'
+    runSql(`update public.checkout_attempts set created_at = now() - interval '1 day'
       where provider_reference = '${older}'`);
     createAttempt(owner,newer,"Business",7500000);
     runSql(settleSql(newer,7500000,id()));
     runSql(settleSql(older,3500000,id()));
     assert.equal(oneValue(`select plan from public.profiles where id='${owner}'`), "Business");
     assert.equal(oneValue(`select count(*) from public.invoices where business_id='${owner}' and status='paid'`), "2");
-    assert.equal(oneValue(`select applied_to_subscription from public.payment_attempts where provider_reference='${older}'`), "f");
+    assert.equal(oneValue(`select applied_to_subscription from public.checkout_attempts where provider_reference='${older}'`), "f");
   });
 
   await t.test("amount mismatch and cross-reference conflicts cannot change entitlements", () => {
@@ -156,8 +153,10 @@ test("atomic Paystack settlement against isolated real PostgreSQL", options, asy
     const owner=id(),reference=ref(),transactionId=id();
     createOwner(owner); createAttempt(owner,reference);
     runSql(settleSql(reference,3500000,transactionId));
-    runSql(`update public.invoices set status='refunded' where provider_reference='${reference}';
-      update public.profiles set payment_status='inactive' where id='${owner}';`);
+    runSql(`begin;set local request.jwt.claim.role='service_role';
+      update public.invoices set status='refunded' where provider_reference='${reference}';
+      update public.subscriptions set status='suspended' where business_id='${owner}';
+      update public.profiles set payment_status='inactive' where id='${owner}';commit;`);
     assert.equal(runSql(settleSql(reference,3500000,transactionId), { allowError: true }).success, false);
     assert.equal(oneValue(`select payment_status from public.profiles where id='${owner}'`), "inactive");
   });
