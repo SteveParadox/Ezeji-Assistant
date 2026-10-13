@@ -52,7 +52,9 @@ export function BookingsPage({ user }) {
       const { data, error } = await supabase.from("bookings")
         .update({ status }).eq("id", id).eq("business_id", user.id)
         .select("id,status").maybeSingle();
-      if (error || !data) throw new Error("Booking update was not saved.");
+      if (error || !data || data.id !== id || data.status !== status) {
+        throw new Error("The database did not confirm the requested booking status.");
+      }
       setBookings(rows => rows.map(row => row.id === id ? { ...row, status: data.status } : row));
     } catch {
       setError("Booking update was not saved. Another booking may already occupy that time.");
