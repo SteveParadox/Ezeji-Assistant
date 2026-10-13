@@ -27,7 +27,6 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   const storageScope = user?.id || "guest";
   const chatHistoryKey = `nightline-chat-history-${storageScope}`;
   const disappearingKey = `nightline-disappearing-messages-${storageScope}`;
-  const bookingRequestsKey = `nightline-booking-requests-${storageScope}`;
 
   const [disappearing, setDisappearing] = useState(() => {
     if (typeof window === "undefined") return true;
@@ -127,43 +126,6 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
     setConnectionIssue(false);
   };
 
-  const saveBookingRequest = (message) => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem(bookingRequestsKey);
-      const requests = stored ? JSON.parse(stored) : [];
-      const nextRequest = {
-        id: `${Date.now()}`,
-        message,
-        createdAt: new Date().toISOString(),
-        source: "customer-chat",
-        status: "pending",
-      };
-      window.localStorage.setItem(bookingRequestsKey, JSON.stringify([nextRequest, ...requests].slice(0, 10)));
-    } catch {
-      // ignore
-    }
-  };
-
-  const logConversation = async (customerMessage, aiReply, { escalated = false, bookingIntent = false } = {}) => {
-    if (!user?.id) return;
-    // Owner testing their own widget in the dashboard should never count
-    // against their real usage limit or pollute Conversations/Analytics
-    // with test messages - only real customers count.
-    if (previewOnly) return;
-    try {
-      await supabase.from("conversations").insert({
-        business_id: user.id,
-        customer_message: customerMessage,
-        ai_reply: aiReply,
-        escalated,
-        booking_intent: bookingIntent,
-      });
-    } catch (err) {
-      console.error("conversation logging failed:", err);
-    }
-  };
-
   const send = async (text) => {
     if (!enabled) return;
     const nextText = `${text || draft || ""}`.trim();
@@ -176,17 +138,11 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
 
     const isBookingIntent = /(book|booking|room|suite|stay|reservation|date|dates|friday|saturday|sunday|tomorrow|weekend|guest|guests|time|slot)/i.test(nextText);
     if (isBookingIntent) {
-      if (!previewOnly) saveBookingRequest(nextText);
-      setBookingNotice("Booking details captured. The assistant will keep guiding the customer through the next step.");
+      // All authoritative booking records must be created on the server.
+      setBookingNotice("Booking requests require staff confirmation. No appointment has been reserved.");
     } else {
       setBookingNotice("");
     }
-
-    const escalationKeywords = (user?.escalationKeywords || "")
-      .split(",")
-      .map((k) => k.trim().toLowerCase())
-      .filter(Boolean);
-    const isEscalation = escalationKeywords.some((kw) => nextText.toLowerCase().includes(kw));
 
     try {
       const payload = buildAssistantRequestPayload(nextText, user, nextConversation, knowledge, { previewOnly });
@@ -205,7 +161,6 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
       const data = await response.json();
       setIsTyping(false);
       setMessages((m) => [...m, { from: "ai", text: data.reply }]);
-      logConversation(nextText, data.reply, { escalated: isEscalation, bookingIntent: isBookingIntent });
     } catch (err) {
       console.error("assistant-reply request failed:", err);
       setIsTyping(false);
@@ -215,7 +170,6 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
         ...m,
         { from: "ai", text: fallback, offline: true },
       ]);
-      logConversation(nextText, fallback, { escalated: true, bookingIntent: isBookingIntent });
     }
   };
 
