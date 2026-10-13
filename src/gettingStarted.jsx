@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { selectedPaidPlan } from "./authState";
 import { getStoredPlanSelection } from "./shared";
+import { hasConfiguredOpeningHours } from "./onboardingState";
 
 // A read-only checklist derived from the database. Never store a deceptive
 // "onboarding complete" flag just because a user clicked Next.
@@ -29,11 +30,11 @@ export function GettingStartedPage({ user, onNavigate, onCheckout }) {
   }, [user?.id]);
 
   const profileReady = Boolean(user?.business?.trim() && user?.businessType && user?.description?.trim());
-  const hoursReady = Boolean(Array.isArray(user?.hoursJson) && user.hoursJson.length && user?.address?.trim() && user?.cityStateZip?.trim());
+  const hoursReady = Boolean(hasConfiguredOpeningHours(user?.hoursJson) && user?.address?.trim() && user?.cityStateZip?.trim());
   const steps = [
     { title: "Tell us about your business", details: "Add your category, description and contact information.", done: profileReady, tab: "profile", required: true },
     { title: "Add services and prices", details: "Give customers accurate information on what you offer.", done: !counts.loading && !counts.error && counts.services > 0, tab: "services", required: true },
-    { title: "Set business hours and location", details: "Save your real operating schedule and address.", done: hoursReady, tab: "hours", required: true },
+    { title: "Set business hours and location", details: "Mark at least one day open, then save your real operating schedule and address.", done: hoursReady, tab: "hours", required: true },
     { title: "Add frequently asked questions", details: "Recommended. Help customers get more useful answers.", done: !counts.loading && !counts.error && counts.faqs > 0, tab: "faqs", required: false },
     { title: "Configure your assistant", details: "Review the assistant settings available on your plan.", done: false, tab: "ai", required: false },
     { title: "Test the customer experience", details: "The overview includes an assistant preview, not a confirmed live connection.", done: false, tab: "overview", required: false },
