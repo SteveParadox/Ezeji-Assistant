@@ -1,13 +1,13 @@
 import { supabase } from "./supabaseClient";
 import { API_BASE_URL } from "./shared";
 import { signupDetails, selectedPaidPlan, callbackUrl } from "./authState";
+import { validateSignupFields } from "./signupValidation";
 export { RECOVERY_FLAG, selectedPaidPlan, signupDetails, getRegistrationDetails, callbackUrl, readAuthCallback, hasAuthCallback, destinationForBusiness, isSelectedPlanActive, readRecovery, rememberRecovery } from "./authState";
 
 export async function registerBusiness(form) {
   const email = String(form.email || "").trim().toLowerCase();
-  if (!email || !email.includes("@") || String(form.password || "").length < 8 || !String(form.business || "").trim()) {
-    throw new Error("Enter a business name, valid email, and a password of at least 8 characters.");
-  }
+  const validationError = validateSignupFields(form);
+  if (validationError) throw new Error(validationError);
   const { data, error } = await supabase.auth.signUp({
     email,
     password: form.password,
