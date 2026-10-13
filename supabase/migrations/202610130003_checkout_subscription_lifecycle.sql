@@ -211,4 +211,40 @@ revoke all on function public.settle_paystack_payment(text,bigint,text,text,text
 grant execute on function public.settle_paystack_payment(text,bigint,text,text,text,timestamptz) to service_role;
 -- Remove legacy five-argument RPC so there is exactly one settlement path.
 drop function if exists public.settle_paystack_payment(text,bigint,text,text,text);
+create or replace function public.production_billing_ready()
+returns boolean language sql stable security definer
+set search_path=pg_catalog,public
+as $function$
+ select coalesce(auth.role(),'') = 'service_role'
+   and to_regclass('public.checkout_attempts') is not null
+   and to_regclass('public.subscriptions') is not null;
+$function$;
+revoke all on function public.production_billing_ready() from public,anon,authenticated;
+grant execute on function public.production_billing_ready() to service_role;
+
+-- A narrow DB operation for overdue terms. Authorization must independently
+-- check period end, even if this scheduled transition has not yet executed.
+create or replace function public.expire_paid_subscriptions()
+returns integer language plpgsql security definer
+set search_path=pg_catalog,public
+as $function$
+declare changed integer;
+begin
+ if coalesce(auth.role(),'') <> 'service_role' then
+   raise exception 'Only the scheduler service role may expire terms' using errcode='42501';
+ end if;
+ update public.subscriptions set status='expired',expired_at=now(),updated_at=now()
+   where status in('active','cancellation_scheduled')
+     and current_period_end<=now();
+ get diagnostics changed = row_count;
+ update public.profiles p set payment_status='expired'
+   from public.subscriptions s where p.id=s.business_id
+     and s.status='expired' and p.payment_status='active';
+ return changed;
+end;
+$function$;
+revoke all on function public.expire_paid_subscriptions() from public,anon,authenticated;
+grant execute on function public.expire_paid_subscriptions() to service_role;
+
+
 commit;
