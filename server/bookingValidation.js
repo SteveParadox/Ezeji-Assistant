@@ -1,5 +1,3 @@
-const WEEKDAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-
 export function serviceDurationMinutes(duration) {
   const value=String(duration||"").trim().toLowerCase();
   const match=/^(\d{1,3})\s*(min|mins|minute|minutes|h|hr|hour|hours)$/.exec(value);
