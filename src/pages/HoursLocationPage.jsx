@@ -1,13 +1,9 @@
 import React, { useState } from "react";
 import { TextField } from "../shared";
-import { normalizeWorkingHours, validateWorkingHours, summarizeWorkingHours } from "../workingHours";
-
-const DEFAULT_HOURS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day) => ({
-  day, open: "", close: "", closed: true,
-}));
+import { buildWeeklySchedule, validateWorkingHours, summarizeWorkingHours } from "../workingHours";
 
 export function HoursLocationPage({ user, onUpdateUser }) {
-  const [hours, setHours] = useState(() => normalizeWorkingHours(user?.hoursJson || DEFAULT_HOURS));
+  const [hours, setHours] = useState(() => buildWeeklySchedule(user?.hoursJson));
   const [address, setAddress] = useState(user?.address || "");
   const [cityStateZip, setCityStateZip] = useState(user?.cityStateZip || "");
   const [timezone, setTimezone] = useState(user?.timezone || "Africa/Lagos");
