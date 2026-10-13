@@ -3,6 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { attachStaffRoutes } from './server/staffRoutes.js';
+import { attachWhatsAppRoutes, decryptToken } from './server/whatsappConnections.js';
 
 dotenv.config();
 
@@ -12,8 +14,8 @@ const port = process.env.PORT || 5174;
 // Used so the backend can actually write a real row to the bookings table
 // when the AI decides to create one, and to record real payments after a
 // Paystack webhook confirms them.
-const supabase = (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY))
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
+const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: {persistSession:false} })
   : null;
 
 const allowedOrigins = [
@@ -34,6 +36,7 @@ app.use(cors({
 }));
 
 app.use(express.json({
+  limit: '48kb',
   verify: (req, res, buffer) => {
     req.rawBody = Buffer.from(buffer);
   },
@@ -52,27 +55,8 @@ async function generateAssistantReply({ message, profile, conversation, systemPr
     };
   }
 
-  const tools = businessId ? [
-    {
-      type: 'function',
-      function: {
-        name: 'create_booking',
-        description: 'Create a real booking/appointment once you have the customer\'s name, contact info, desired service, date, and time. Only call this when you actually have these details from the conversation - ask for anything missing first instead of guessing.',
-        parameters: {
-          type: 'object',
-          properties: {
-            customer_name: { type: 'string', description: 'The customer\'s name' },
-            customer_contact: { type: 'string', description: 'Phone number or email to reach the customer' },
-            service: { type: 'string', description: 'What they\'re booking (e.g. "Cut & Color")' },
-            booking_date: { type: 'string', description: 'The requested date, in plain language (e.g. "Saturday")' },
-            booking_time: { type: 'string', description: 'The requested time (e.g. "9:00 AM")' },
-            notes: { type: 'string', description: 'Any other relevant details' },
-          },
-          required: ['customer_name', 'service', 'booking_date', 'booking_time'],
-        },
-      },
-    },
-  ] : undefined;
+  // No AI-generated confirmed booking until independent, atomic availability validation exists.
+  const tools = undefined;
 
   const baseMessages = [
     {
@@ -95,6 +79,7 @@ async function generateAssistantReply({ message, profile, conversation, systemPr
 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
@@ -113,39 +98,6 @@ async function generateAssistantReply({ message, profile, conversation, systemPr
   }
 
   const responseMessage = payload.choices?.[0]?.message;
-  const toolCall = responseMessage?.tool_calls?.[0];
-
-  if (toolCall && toolCall.function?.name === 'create_booking' && supabase && businessId) {
-    let args;
-    try {
-      args = JSON.parse(toolCall.function.arguments);
-    } catch {
-      args = {};
-    }
-
-    const { error: insertError } = await supabase.from('bookings').insert({
-      business_id: businessId,
-      customer_name: args.customer_name || null,
-      customer_contact: args.customer_contact || null,
-      service: args.service || null,
-      booking_date: args.booking_date || null,
-      booking_time: args.booking_time || null,
-      notes: args.notes || null,
-    });
-
-    if (insertError) {
-      console.error('booking insert error:', insertError);
-      return {
-        reply: "I tried to lock that in but hit a snag saving it - could you try confirming those details again?",
-        provider: 'groq',
-        booked: false,
-      };
-    }
-
-    const confirmationReply = `Booked - ${args.booking_date} at ${args.booking_time} for ${args.service}${args.customer_name ? `, under ${args.customer_name}` : ''}. Anything else I can help with?`;
-    return { reply: confirmationReply, provider: 'groq', booked: true };
-  }
-
   return { reply: cleanAssistantReply(responseMessage?.content || 'I can help with that.'), provider: 'groq', booked: false };
 }
 
@@ -166,76 +118,50 @@ const PLAN_LIMITS = {
   'Business': Infinity,
 };
 
-async function checkUsageLimit(businessId, plan) {
-  if (!supabase || !businessId) return { allowed: true };
-
-  // The 14-day trial has two independent caps: a conversation-count
-  // ceiling (checked below) and the 14-day clock itself. The clock was
-  // never actually enforced here before - only shown as a passive message
-  // on the Billing page - so a trial business could keep using the
-  // assistant indefinitely past day 14 as long as they stayed under 100
-  // total conversations. We check the real trial_ends_at/trial_active
-  // columns straight from the database (never trust a client-supplied
-  // "plan" for this), not whatever the client claims its plan is.
-  if (plan === '14-day trial') {
-    const { data: trialProfile, error: trialError } = await supabase
-      .from('profiles')
-      .select('trial_active, trial_ends_at')
-      .eq('id', businessId)
-      .single();
-
-    if (!trialError && trialProfile) {
-      const expired = trialProfile.trial_active === false
-        || (trialProfile.trial_ends_at && new Date(trialProfile.trial_ends_at) <= new Date());
-      if (expired) {
-        return { allowed: false, reason: 'trial-expired' };
-      }
-    }
-  }
-
-  const limit = PLAN_LIMITS[plan] ?? PLAN_LIMITS['14-day trial'];
-  if (limit === Infinity) return { allowed: true };
-
-  const since = plan === '14-day trial'
-    ? new Date(0).toISOString()
-    : new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-
-  const { count, error } = await supabase
-    .from('conversations')
-    .select('id', { count: 'exact', head: true })
-    .eq('business_id', businessId)
-    .gte('created_at', since);
-
-  if (error) {
-    console.error('usage limit check error:', error);
-    return { allowed: true };
-  }
-
-  return { allowed: (count || 0) < limit, count: count || 0, limit };
+async function checkUsageLimit(businessId) {
+  if (!supabase) throw new Error('Usage database unavailable');
+  const result=await supabase.from('profiles').select('plan,payment_status,trial_active,trial_ends_at').eq('id',businessId).maybeSingle();
+  if (result.error || !result.data) throw new Error('Business entitlement unavailable');
+  const plan=result.data.plan;
+  if (plan==='14-day trial' && (result.data.trial_active!==true || !result.data.trial_ends_at || Date.parse(result.data.trial_ends_at)<=Date.now())) return {allowed:false,reason:'trial-expired'};
+  if (plan!=='14-day trial' && result.data.payment_status!=='active') return {allowed:false,reason:'subscription-inactive'};
+  const limit=PLAN_LIMITS[plan];
+  if (limit===undefined) return {allowed:false,reason:'unknown-plan'};
+  if (limit===Infinity) return {allowed:true,limit};
+  const now=new Date();
+  const since=plan==='14-day trial' ? new Date(0).toISOString() : new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),1)).toISOString();
+  const {count,error}=await supabase.from('conversations').select('id',{count:'exact',head:true}).eq('business_id',businessId).gte('created_at',since);
+  if (error) throw new Error('Usage count unavailable');
+  return {allowed:(count||0)<limit,count:count||0,limit};
 }
 
-app.post('/assistant-reply', async (req, res) => {
+app.post('/assistant-reply', async (req,res)=>{
   try {
-    const { message, profile, conversation, systemPrompt, businessId, plan } = req.body;
-
-    const usage = await checkUsageLimit(businessId, plan);
-    if (!usage.allowed) {
-      return res.json({
-        reply: usage.reason === 'trial-expired'
-          ? "Thanks for reaching out - this business's free trial has ended. Please contact them directly, or check back soon."
-          : "Thanks for reaching out - this business has reached their plan's conversation limit for now. Please contact them directly, or check back soon.",
-        provider: 'limit-reached',
-        limitReached: true,
-      });
+    const {message,businessId,conversation}=req.body||{};
+    if(typeof businessId!=='string'|| !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(businessId)) return res.status(400).json({error:'Invalid business'});
+    if(typeof message!=='string'||!message.trim()||message.length>2000) return res.status(400).json({error:'Invalid message'});
+    if(conversation!==undefined && (!Array.isArray(conversation)||conversation.length>12||conversation.some(x=>!x||!['customer','ai'].includes(x.from)||typeof x.text!=='string'||x.text.length>2000))) return res.status(400).json({error:'Invalid history'});
+    if(!supabase) return res.status(503).json({error:'Service unavailable'});
+    const [prof,faq,services]=await Promise.all([
+      supabase.from('profiles').select('id,business,service_name,price,hours,description').eq('id',businessId).maybeSingle(),
+      supabase.from('faqs').select('question,answer').eq('business_id',businessId).limit(60),
+      supabase.from('services').select('name,price,duration').eq('business_id',businessId).limit(60)
+    ]);
+    if(prof.error||faq.error||services.error) return res.status(503).json({error:'Business lookup unavailable'});
+    if(!prof.data) return res.status(404).json({error:'Business not found'});
+    const usage=await checkUsageLimit(businessId);
+    if(!usage.allowed) return res.status(429).json({reply:'This business is temporarily unable to accept AI conversations. Contact them directly.',provider:'limit-reached',limitReached:true});
+    const p=prof.data;
+    const systemPrompt=`You are a customer assistant for ${p.business}. Answer using only business facts provided below. Do not invent availability or claim any booking is confirmed. Booking requests must be confirmed by staff. Hours: ${p.hours||'Not provided'}. Description: ${p.description||''}. Services: ${JSON.stringify(services.data||[])}. FAQs: ${JSON.stringify(faq.data||[])}`;
+    const result=await generateAssistantReply({message:message.trim(),profile:{business:p.business,serviceName:p.service_name,price:p.price,hours:p.hours},conversation:conversation||[],systemPrompt});
+    if(result.provider==='groq') {
+      const {error:writeError}=await supabase.from('conversations').insert({business_id:businessId,customer_message:message.trim(),ai_reply:result.reply,escalated:false,booking_intent:/book|reserve|appointment/i.test(message)});
+      if(writeError) throw new Error('Conversation persistence unavailable');
     }
-
-    const result = await generateAssistantReply({ message, profile, conversation, systemPrompt, businessId });
     return res.json(result);
-  } catch (error) {
-    console.error('assistant-reply error:', error);
-    res.status(500).json({
-      error: error.message || 'Unable to reach the AI service.',
-    });
+  } catch(error) {
+    console.error('assistant-reply error:',error.message);
+    return res.status(503).json({error:'Assistant temporarily unavailable'});
   }
 });
 
@@ -251,21 +177,23 @@ const PRICE_MAP_NGN_KOBO = {
   Business: { monthly: 7500000, yearly: 75000000 },       // NGN 75,000 / NGN 750,000
 };
 
-app.post('/create-checkout-session', async (req, res) => {
+app.post('/create-checkout-session', async (req,res)=>{
   try {
-    const { plan, billingPeriod, email, business, name, businessId } = req.body;
-
-    const unitAmount = PRICE_MAP_NGN_KOBO[plan]?.[billingPeriod === 'yearly' ? 'yearly' : 'monthly'] || 0;
-
-    if (!unitAmount) {
-      return res.status(400).json({ error: 'Unknown plan or billing period.' });
-    }
-
-    return await handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, business, name, businessId, res });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: error.message || 'Unable to create checkout session.' });
-  }
+    if (!supabase) return res.status(503).json({error:'Database unavailable'});
+    const bearer=/^Bearer (\S+)$/i.exec(req.headers.authorization||'');
+    if(!bearer) return res.status(401).json({error:'Sign in required'});
+    const {data:auth,error:authError}=await supabase.auth.getUser(bearer[1]);
+    if(authError||!auth?.user) return res.status(401).json({error:'Invalid session'});
+    const {data:business,error:businessError}=await supabase.from('profiles').select('id,business').eq('id',auth.user.id).maybeSingle();
+    if(businessError||!business) return res.status(403).json({error:'Business account not found'});
+    const {plan,billingPeriod}=req.body||{};
+    if(!Object.hasOwn(PRICE_MAP_NGN_KOBO,plan)||!['monthly','yearly'].includes(billingPeriod)) return res.status(400).json({error:'Invalid plan or billing period'});
+    return await handlePaystackCheckout({
+      unitAmount:PRICE_MAP_NGN_KOBO[plan][billingPeriod],
+      email:auth.user.email,plan,billingPeriod,
+      business:business.business,name:auth.user.user_metadata?.name||'',businessId:business.id,res
+    });
+  }catch(error){console.error('checkout error:',error.message);return res.status(503).json({error:'Unable to begin checkout'});}
 });
 
 async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, business, name, businessId, res }) {
@@ -281,6 +209,7 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
 
   const initResponse = await fetch('https://api.paystack.co/transaction/initialize', {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: {
       Authorization: `Bearer ${paystackKey}`,
       'Content-Type': 'application/json',
@@ -312,8 +241,8 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
 }
 
 async function recordSuccessfulPayment({ provider, reference, plan, billingPeriod, currency, email, business, businessId, amount }) {
-  if (!supabase) return;
-
+  if(!supabase) throw new Error('Payment database unavailable');
+  if(!businessId || !Object.hasOwn(PRICE_MAP_NGN_KOBO,plan) || !['monthly','yearly'].includes(billingPeriod) || (currency||'').toUpperCase()!=='NGN' || amount!==PRICE_MAP_NGN_KOBO[plan][billingPeriod]) throw new Error('Invalid payment metadata or amount');
   let profile = null;
 
   if (businessId) {
@@ -322,13 +251,6 @@ async function recordSuccessfulPayment({ provider, reference, plan, billingPerio
     profile = data;
   }
 
-  if (!profile) {
-    // Fallback for older payments that didn't carry a businessId - matches
-    // by business name, which is less reliable if two accounts share one.
-    const { data, error } = await supabase.from('profiles').select('id').eq('business', business).limit(1).maybeSingle();
-    if (error) console.error(`${provider} profile lookup by name error:`, error);
-    profile = data;
-  }
 
   if (!profile) {
     console.warn(`${provider} payment received before a matching profile existed:`, business, businessId);
@@ -344,7 +266,7 @@ async function recordSuccessfulPayment({ provider, reference, plan, billingPerio
     trial_ends_at: new Date().toISOString(),
   }).eq('id', profile.id);
 
-  if (updateError) console.error(`${provider} profile update error:`, updateError);
+  if (updateError) throw updateError;
 
   const { error: invoiceError } = await supabase.from('invoices').upsert({
     business_id: profile.id,
@@ -358,7 +280,7 @@ async function recordSuccessfulPayment({ provider, reference, plan, billingPerio
     customer_email: email || null,
   }, { onConflict: 'provider,provider_reference' });
 
-  if (invoiceError) console.error(`${provider} invoice record error:`, invoiceError);
+  if (invoiceError) throw invoiceError;
 }
 
 app.post('/webhooks/paystack', async (req, res) => {
@@ -370,6 +292,7 @@ app.post('/webhooks/paystack', async (req, res) => {
     return res.status(401).json({ error: 'Invalid Paystack webhook signature.' });
   }
 
+  try {
   const event = req.body || {};
   if (event.event === 'charge.success' && event.data?.status === 'success') {
     const metadata = event.data.metadata || {};
@@ -387,6 +310,7 @@ app.post('/webhooks/paystack', async (req, res) => {
   }
 
   return res.json({ received: true });
+  }catch(error){console.error('Payment settlement failed:',error.message);return res.status(503).json({error:'Payment could not be recorded'});}
 });
 
 // Recommended once live: lets you confirm a payment server-side rather
@@ -409,6 +333,8 @@ app.get('/verify-paystack/:reference', async (req, res) => {
   }
 });
 
+app.get('/health', (req,res) => res.json({status:'alive'}));
+
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
   console.error('API request error:', error);
@@ -422,13 +348,19 @@ app.get('/webhook/whatsapp', (req, res) => {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+  if (mode === 'subscribe' && process.env.WHATSAPP_VERIFY_TOKEN && token === process.env.WHATSAPP_VERIFY_TOKEN) {
     return res.status(200).send(challenge);
   }
   return res.sendStatus(403);
 });
 
 app.post('/webhook/whatsapp', async (req, res) => {
+  const provided=req.headers['x-hub-signature-256'];
+  const secret=process.env.WHATSAPP_APP_SECRET;
+  if(!secret||typeof provided!=='string'||!Buffer.isBuffer(req.rawBody)) return res.sendStatus(401);
+  const expected=Buffer.from('sha256='+crypto.createHmac('sha256',secret).update(req.rawBody).digest('hex'));
+  const actual=Buffer.from(provided);
+  if(actual.length!==expected.length||!crypto.timingSafeEqual(actual,expected)) return res.sendStatus(401);
   res.sendStatus(200);
 
   if (!supabase) {
@@ -459,6 +391,8 @@ app.post('/webhook/whatsapp', async (req, res) => {
     }
 
     const businessId = connection.business_id;
+    const usage = await checkUsageLimit(businessId);
+    if (!usage.allowed) { console.warn('WhatsApp subscription or quota denied', businessId); return; }
 
     const [{ data: profile }, { data: faqs }, { data: services }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', businessId).maybeSingle(),
@@ -479,7 +413,7 @@ app.post('/webhook/whatsapp', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${connection.access_token}`,
+        Authorization: `Bearer ${decryptToken(connection.access_token)}`,
       },
       body: JSON.stringify({
         messaging_product: 'whatsapp',
@@ -518,27 +452,8 @@ if (!process.env.VERCEL) {
   });
 }
 
-app.post('/integrations/whatsapp/test', async (req, res) => {
-  const { phoneNumberId, accessToken } = req.body || {};
-  if (!phoneNumberId?.trim() || !accessToken?.trim()) {
-    return res.status(400).json({ error: 'Phone Number ID and access token are required.' });
-  }
+attachStaffRoutes(app,supabase);
 
-  try {
-    const response = await fetch(`https://graph.facebook.com/v18.0/${encodeURIComponent(phoneNumberId.trim())}?fields=display_phone_number,verified_name`, {
-      headers: { Authorization: `Bearer ${accessToken.trim()}` },
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      return res.status(400).json({ error: payload.error?.message || 'Meta rejected these WhatsApp credentials.' });
-    }
-    return res.json({
-      verifiedName: payload.verified_name || '',
-      displayPhoneNumber: payload.display_phone_number || '',
-    });
-  } catch (error) {
-    return res.status(502).json({ error: 'Could not reach Meta to verify the WhatsApp connection.' });
-  }
-});
+attachWhatsAppRoutes(app,supabase);
 
 export default app;

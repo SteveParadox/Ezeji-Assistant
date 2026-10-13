@@ -40,6 +40,7 @@ export const NAV_ITEMS = [
   { id: "conversations", label: "Conversations", icon: MessagesSquare },
   { id: "analytics", label: "Analytics", icon: BarChart3 },
   { id: "billing", label: "Billing", icon: CreditCard },
+  { id: "integrations", label: "Integrations", icon: Bot },
 ];
 
 export function DashboardShell({ go, active, setActive, children, isStaff = false }) {
@@ -190,7 +191,7 @@ export function OverviewPage({ user, onUpdateUser }) {
 
       <div className="stat-grid">
         <StatCard label="Conversations today" value={loading ? "..." : String(stats.today)} sub={loading ? "" : `${diffFromYesterday >= 0 ? "+" : ""}${diffFromYesterday} vs yesterday`} />
-        <StatCard label="Resolved by AI" value={loading ? "..." : `${stats.resolvedPct}%`} accent sub={loading ? "" : `${stats.today - stats.escalated} of ${stats.today} handled`} />
+        <StatCard label="Not escalated" value={loading ? "..." : `${stats.resolvedPct}%`} accent sub={loading ? "" : `${stats.today - stats.escalated} of ${stats.today} handled`} />
         <StatCard label="Escalated to staff" value={loading ? "..." : String(stats.escalated)} sub="today" />
         <StatCard label="Total logged" value={loading ? "..." : String(stats.total)} sub="all time" />
       </div>
@@ -928,7 +929,7 @@ export function AnalyticsPage({ user }) {
       <div className="page-header"><div><h1 className="page-title">Analytics</h1><p className="page-sub">What customers ask, and how well the AI answers. Last 30 days.</p></div></div>
       <div className="stat-grid">
         <StatCard label="Total conversations" value={loading ? "..." : String(total)} sub="last 30 days" />
-        <StatCard label="Resolution rate" value={loading ? "..." : `${resolutionRate}%`} accent />
+        <StatCard label="Not escalated" value={loading ? "..." : `${resolutionRate}%`} accent />
         {tier === "advanced" && <StatCard label="Booking intents" value={loading ? "..." : String(bookingsCount)} sub="messages mentioning dates/booking" />}
       </div>
       {tier === "basic" ? (
@@ -968,7 +969,7 @@ export function AnalyticsPage({ user }) {
 
 export function IntegrationsPage({ user }) {
   const plan = user?.plan || "14-day trial";
-  const canConnect = AI_PERSONALITY_PLANS.includes(plan); // same Professional/Business gate as WhatsApp is sold on
+  const canConnect = hasActivePremiumPlan(user); // Server independently enforces this entitlement
   const [phoneNumberId, setPhoneNumberId] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [connected, setConnected] = useState(false);
@@ -980,83 +981,35 @@ export function IntegrationsPage({ user }) {
 
   useEffect(() => {
     if (!user?.id) return;
-    let cancelled = false;
-    supabase
-      .from("channel_connections")
-      .select("phone_number_id, access_token")
-      .eq("business_id", user.id)
-      .eq("channel", "whatsapp")
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return;
-        if (data) {
-          setPhoneNumberId(data.phone_number_id || "");
-          setAccessToken(data.access_token || "");
-          setConnected(true);
-          setBusinessNumber(data.display_phone_number || "");
-        }
-        setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [user?.id]);
+    let cancelled=false;
+    staffApi("/integrations/whatsapp")
+      .then(({connection})=>{
+        if(cancelled)return;
+        if(connection){setConnected(true);setPhoneNumberId(connection.phone_number_id||"");}
+      })
+      .catch(error=>{if(!cancelled)setConnectionError(error.message||"Connection status unavailable");})
+      .finally(()=>{if(!cancelled)setLoading(false);});
+    return ()=>{cancelled=true;};
+  },[user?.id]);
 
-  const save = async () => {
-    if (!user?.id || !phoneNumberId.trim() || !accessToken.trim()) {
-      setConnectionError("Enter both the Phone Number ID and access token.");
-      return;
-    }
-    setConnectionError("");
-    setTestState("testing");
-    let testResponse;
+  const save=async()=>{
+    if(!phoneNumberId.trim()||!accessToken.trim()){setConnectionError("Enter a phone number ID and a new access token.");return;}
+    setConnectionError("");setTestState("testing");
     try {
-      testResponse = await fetch(`${API_BASE_URL}/integrations/whatsapp/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phoneNumberId, accessToken }),
+      const {connection}=await staffApi("/integrations/whatsapp",{
+        method:"PUT",body:JSON.stringify({phoneNumberId:phoneNumberId.trim(),accessToken:accessToken.trim()})
       });
-    } catch {
-      setTestState("idle");
-      setConnectionError("The integration server could not be reached.");
-      return;
-    }
-    const testPayload = await testResponse.json();
-    if (!testResponse.ok) {
-      setTestState("idle");
-      setConnectionError(testPayload.error || "Meta could not verify this connection.");
-      return;
-    }
-    const { error } = await supabase.from("channel_connections").upsert({
-      business_id: user.id,
-      channel: "whatsapp",
-      phone_number_id: phoneNumberId.trim(),
-      access_token: accessToken.trim(),
-    }, { onConflict: "business_id,channel" });
-
-    if (error) {
-      console.error("WhatsApp connect error:", error);
-      setTestState("idle");
-      setConnectionError("The credentials were verified, but the connection could not be saved.");
-      return;
-    }
-    setConnected(true);
-    setBusinessNumber(testPayload.displayPhoneNumber || "");
-    setTestState("idle");
-    setSaveState("saved");
-    window.setTimeout(() => setSaveState("idle"), 1800);
+      setConnected(true);setBusinessNumber(connection?.displayPhoneNumber||"");
+      setAccessToken("");setSaveState("saved");
+    }catch(error){setConnectionError(error.message||"Could not connect WhatsApp");}
+    finally{setTestState("idle");}
   };
-
-  const disconnect = async () => {
-    if (!user?.id) return;
+  const disconnect=async()=>{
     setConnectionError("");
-    const { error } = await supabase.from("channel_connections").delete().eq("business_id", user.id).eq("channel", "whatsapp");
-    if (error) {
-      setConnectionError("Could not disconnect WhatsApp. Please try again.");
-      return;
-    }
-    setConnected(false);
-    setPhoneNumberId("");
-    setAccessToken("");
-    setBusinessNumber("");
+    try{
+      await staffApi("/integrations/whatsapp",{method:"DELETE"});
+      setConnected(false);setPhoneNumberId("");setAccessToken("");setBusinessNumber("");
+    }catch(error){setConnectionError(error.message||"Could not disconnect WhatsApp");}
   };
 
   const webhookUrl = typeof window !== "undefined"
@@ -1155,17 +1108,7 @@ export function BillingPage({ user, onUpdateUser }) {
 
   const handleActivate = async () => {
     if (plan === "14-day trial") {
-      const nextUser = {
-        ...(user || {}),
-        plan,
-        paymentStatus: "trial",
-        trialActive: true,
-        billingPeriod,
-        currency: "NGN",
-        trialEndsAt: getTrialEndsAt(14),
-      };
-      onUpdateUser(nextUser);
-      setMessage(`Your 14-day trial has started. You'll have access for 14 more days.`);
+      setError("A trial starts at registration and cannot be restarted. Select a paid plan.");
       return;
     }
 
@@ -1177,9 +1120,11 @@ export function BillingPage({ user, onUpdateUser }) {
     setError("");
     setIsSubmitting(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Please sign in again.");
       const response = await fetch(`${API_BASE_URL}/create-checkout-session`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
           plan,
           billingPeriod,
@@ -1236,7 +1181,7 @@ export function BillingPage({ user, onUpdateUser }) {
             <p className="current-plan-name">{plan === "14-day trial" ? "Free for 14 days" : `${planDetails.displayPrice}/${billingPeriod === "yearly" ? "year" : "month"}`}</p>
             <p className="panel-help">{plan === "14-day trial" ? "No payment required to start." : "Charged in NGN via Paystack."}</p>
           </div>
-          <button className="btn btn--amber" onClick={handleActivate} disabled={isSubmitting}>{isSubmitting ? "Setting up..." : plan === "14-day trial" ? "Start 14-day trial" : "Continue to Paystack"}</button>
+          <button className="btn btn--amber" onClick={handleActivate} disabled={isSubmitting}>{isSubmitting ? "Setting up..." : plan === "14-day trial" ? "Trial already used" : "Continue to Paystack"}</button>
           {error && <p className="auth-error">{error}</p>}
           {message && <p className="save-status">{message}</p>}
         </div>
@@ -1277,4 +1222,5 @@ export const DASHBOARD_PAGES = {
   conversations: ConversationsPage,
   analytics: AnalyticsPage,
   billing: BillingPage,
+  integrations: IntegrationsPage,
 };

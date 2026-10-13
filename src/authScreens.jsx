@@ -266,7 +266,7 @@ export function CheckoutScreen({ go, onLogin }) {
 
       const response = await fetch(`${API_BASE_URL}/create-checkout-session`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session.access_token}` },
         body: JSON.stringify({
           plan: planName,
           billingPeriod,

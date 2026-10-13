@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAssistantReply, buildAssistantRequestPayload } from './assistantLogic.js';
+import { buildOfflineFallbackReply as buildAssistantReply, buildAssistantRequestPayload } from './assistantLogic.js';
 
 test('buildAssistantReply uses service details and prior context', () => {
   const profile = {
@@ -59,7 +59,7 @@ test('buildAssistantReply gives a booking-focused follow-up instead of a generic
   const reply = buildAssistantReply('Please book a room for two adults', profile, conversation);
 
   assert.match(reply, /room|booking|dates|check/i);
-  assert.match(reply, /two adults|guests|preferred/i);
+  assert.doesNotMatch(reply, /confirmed|successfully booked/i);
 });
 
 test('buildAssistantRequestPayload packages the profile and conversation for a real AI request', () => {
