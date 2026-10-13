@@ -114,6 +114,37 @@ function cleanAssistantReply(text) {
     .trim();
 }
 
+// Narrow public storefront endpoint: customers can obtain public-facing facts
+// by business UUID, never full profiles or private tenant records.
+app.get('/public-business/:businessId', async (req,res) => {
+  try {
+    const businessId=req.params.businessId;
+    if(!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(businessId)) {
+      return res.status(400).json({error:'Invalid business identifier'});
+    }
+    if(!supabase)return res.status(503).json({error:'Public business information unavailable'});
+    const [profile,faqs,services]=await Promise.all([
+      supabase.from('profiles')
+        .select('id,business,business_type,custom_business_type,service_name,price,hours,description,timezone')
+        .eq('id',businessId).maybeSingle(),
+      supabase.from('faqs').select('question,answer').eq('business_id',businessId).limit(60),
+      supabase.from('services').select('id,name,price,duration').eq('business_id',businessId).limit(60),
+    ]);
+    if(profile.error||faqs.error||services.error)throw profile.error||faqs.error||services.error;
+    if(!profile.data)return res.status(404).json({error:'Business unavailable'});
+    return res.json({business:{
+      id:profile.data.id,business:profile.data.business,
+      businessType:profile.data.business_type,customBusinessType:profile.data.custom_business_type,
+      serviceName:profile.data.service_name,price:profile.data.price,
+      hours:profile.data.hours,description:profile.data.description,
+      timezone:profile.data.timezone,
+    },faqs:faqs.data||[],services:services.data||[]});
+  }catch(error){
+    console.error('Public business lookup error',error.message);
+    return res.status(503).json({error:'Business information temporarily unavailable'});
+  }
+});
+
 app.post('/assistant-reply', async (req,res)=>{
   let reservedId = null;
   try {
