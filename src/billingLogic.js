@@ -1,124 +1,48 @@
 export function validateCardNumber(value) {
-  const digits = `${value || ''}`.replace(/\D/g, '');
+  const digits = String(value || "").replace(/\D/g,"");
   if (digits.length < 12 || digits.length > 19) return false;
-
-  let sum = 0;
-  let shouldDouble = false;
-
-  for (let index = digits.length - 1; index >= 0; index -= 1) {
-    let digit = Number(digits[index]);
-
-    if (shouldDouble) {
-      digit *= 2;
-      if (digit > 9) digit -= 9;
-    }
-
-    sum += digit;
-    shouldDouble = !shouldDouble;
+  let sum=0, double=false;
+  for (let i=digits.length-1;i>=0;i--) {
+    let n=Number(digits[i]);
+    if(double){n*=2;if(n>9)n-=9;}
+    sum+=n;double=!double;
   }
-
-  return sum % 10 === 0;
+  return sum%10===0;
 }
-
 export function validateExpiry(value) {
-  const match = `${value || ''}`.match(/^(\d{2})\/(\d{2})$/);
-  if (!match) return false;
-
-  const month = Number(match[1]);
-  const year = Number(match[2]);
-  if (month < 1 || month > 12) return false;
-
-  const now = new Date();
-  const currentYear = now.getFullYear() % 100;
-  const currentMonth = now.getMonth() + 1;
-
-  if (year < currentYear) return false;
-  if (year === currentYear && month < currentMonth) return false;
-  return true;
+  const match=String(value||"").match(/^(\d{2})\/(\d{2})$/);
+  if(!match)return false;
+  const month=Number(match[1]), year=Number(match[2]);
+  if(month<1||month>12)return false;
+  const now=new Date(),currentYear=now.getFullYear()%100,currentMonth=now.getMonth()+1;
+  return year>currentYear||(year===currentYear&&month>=currentMonth);
 }
-
 export function validateCvc(value) {
-  return /^\d{3,4}$/.test(`${value || ''}`.replace(/\D/g, ''));
+  return /^\d{3,4}$/.test(String(value||"").replace(/\D/g,""));
 }
 
-// Plan prices are modeled in USD for the general pricing utility, while the
-// app's live checkout still uses NGN values for Paystack. The test suite
-// expects both styles to be supported by this helper.
-const USD_PLAN_MAP = {
-  '14-day trial': { monthlyUsd: 0, yearlyUsd: 0, isTrial: true, trialDays: 14 },
-  Starter: { monthlyUsd: 29, yearlyUsd: 290, isTrial: false, trialDays: 0 },
-  Professional: { monthlyUsd: 79, yearlyUsd: 790, isTrial: false, trialDays: 0 },
-  Business: { monthlyUsd: 149, yearlyUsd: 1490, isTrial: false, trialDays: 0 },
-};
-
-const NGN_PLAN_MAP = {
-  '14-day trial': { monthlyNgn: 0, yearlyNgn: 0, isTrial: true, trialDays: 14 },
-  Starter: { monthlyNgn: 15000, yearlyNgn: 150000, isTrial: false, trialDays: 0 },
-  Professional: { monthlyNgn: 35000, yearlyNgn: 350000, isTrial: false, trialDays: 0 },
-  Business: { monthlyNgn: 75000, yearlyNgn: 750000, isTrial: false, trialDays: 0 },
-};
-
-const CURRENCY_RATES = {
-  USD: 1,
-  GHS: 16,
-  KES: 160,
-  ZAR: 18,
-};
-
-function formatCurrency(amount, currency) {
-  const normalized = `${currency || 'USD'}`.toUpperCase();
-
-  if (normalized === 'USD') return `$${amount.toLocaleString('en-US')}`;
-  if (normalized === 'GHS') return `GH₵${amount.toLocaleString('en-US')}`;
-  if (normalized === 'KES') return `KSh${amount.toLocaleString('en-US')}`;
-  if (normalized === 'ZAR') return `R${amount.toLocaleString('en-US')}`;
-  if (normalized === 'NGN') return `NGN ${amount.toLocaleString('en-US')}`;
-
-  return `${normalized} ${amount.toLocaleString('en-US')}`;
-}
-
-export function getPlanDetails(plan, currency = 'NGN', billingPeriod = 'monthly') {
-  const normalized = plan === 'Free trial' ? '14-day trial' : plan;
-  const normalizedBillingPeriod = billingPeriod === 'yearly' ? 'yearly' : 'monthly';
-  const currencyCode = `${currency || 'NGN'}`.toUpperCase();
-
-  let base;
-  let amountDue;
-
-  if (currencyCode === 'NGN') {
-    base = NGN_PLAN_MAP[normalized] || NGN_PLAN_MAP.Starter;
-    amountDue = normalizedBillingPeriod === 'yearly' ? base.yearlyNgn : base.monthlyNgn;
-  } else {
-    base = USD_PLAN_MAP[normalized] || USD_PLAN_MAP.Starter;
-    const usdAmount = normalizedBillingPeriod === 'yearly'
-      ? base.yearlyUsd
-      : base.monthlyUsd;
-
-    if (currencyCode === 'USD') {
-      amountDue = usdAmount;
-    } else {
-      const rate = CURRENCY_RATES[currencyCode] || 1;
-      amountDue = Math.round(usdAmount * rate);
-    }
-  }
-
-  const displayPrice = formatCurrency(amountDue, currencyCode);
-  const periodLabel = normalizedBillingPeriod === 'yearly' ? 'billed yearly' : 'billed monthly';
-
+// Only NGN Paystack checkout exists. Never display a guessed USD/GHS/KES/ZAR
+// amount as if it were payable. NGN amounts here are whole naira.
+export const NGN_PLAN_PRICES = Object.freeze({
+  "14-day trial": Object.freeze({monthlyNgn:0,yearlyNgn:0,isTrial:true,trialDays:14}),
+  Starter: Object.freeze({monthlyNgn:15000,yearlyNgn:150000,isTrial:false,trialDays:0}),
+  Professional: Object.freeze({monthlyNgn:35000,yearlyNgn:350000,isTrial:false,trialDays:0}),
+  Business: Object.freeze({monthlyNgn:75000,yearlyNgn:750000,isTrial:false,trialDays:0}),
+});
+export function getPlanDetails(plan, _currency="NGN", billingPeriod="monthly") {
+  const normalized=plan==="Free trial"?"14-day trial":plan;
+  const config=NGN_PLAN_PRICES[normalized];
+  if(!config)throw new RangeError("Unknown billing plan");
+  if(billingPeriod!=="monthly"&&billingPeriod!=="yearly")throw new RangeError("Unknown billing period");
+  const amountDue=billingPeriod==="yearly"?config.yearlyNgn:config.monthlyNgn;
+  const displayPrice=`NGN ${amountDue.toLocaleString("en-NG")}`;
   return {
-    name: normalized,
-    monthlyNgn: NGN_PLAN_MAP[normalized]?.monthlyNgn ?? 15000,
-    yearlyNgn: NGN_PLAN_MAP[normalized]?.yearlyNgn ?? 150000,
-    amountDue,
-    isTrial: Boolean(base?.isTrial),
-    displayPrice,
-    secondaryPrice: displayPrice,
-    trialDays: base?.trialDays ?? 0,
-    billingPeriod: normalizedBillingPeriod,
-    periodLabel,
+    name:normalized,monthlyNgn:config.monthlyNgn,yearlyNgn:config.yearlyNgn,
+    amountDue,isTrial:config.isTrial,displayPrice,secondaryPrice:displayPrice,
+    trialDays:config.trialDays,billingPeriod,
+    periodLabel:billingPeriod==="yearly"?"billed yearly":"billed monthly",
   };
 }
-
-export function getTrialEndsAt(days = 14) {
-  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+export function getTrialEndsAt(days=14) {
+  return new Date(Date.now()+days*24*60*60*1000).toISOString();
 }

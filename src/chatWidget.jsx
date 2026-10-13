@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import { supabase } from "./supabaseClient";
 import { buildOfflineFallbackReply, buildAssistantRequestPayload } from "./assistantLogic";
 import { Clock, Trash2, Send, X, MessageCircle, AlertTriangle, Mic, MicOff } from "lucide-react";
 import { API_BASE_URL } from "./shared";
@@ -8,6 +7,9 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   const [open, setOpen] = useState(true);
   const [draft, setDraft] = useState("");
   const [bookingNotice, setBookingNotice] = useState("");
+  const [showBookingForm, setShowBookingForm] = useState(false);
+  const [bookingBusy, setBookingBusy] = useState(false);
+  const [booking, setBooking] = useState({name:"",contact:"",serviceId:"",startAt:"",requestId:crypto.randomUUID()});
   const [connectionIssue, setConnectionIssue] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isTyping, setIsTyping] = useState(false);
@@ -99,16 +101,17 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
-    Promise.all([
-      supabase.from("faqs").select("question, answer").eq("business_id", user.id),
-      supabase.from("services").select("name, price, duration").eq("business_id", user.id),
-    ]).then(([faqsRes, servicesRes]) => {
-      if (cancelled) return;
-      setKnowledge({
-        faqs: faqsRes.data || [],
-        services: servicesRes.data || [],
+    fetch(`${API_BASE_URL}/public-business/${encodeURIComponent(user.id)}`)
+      .then(async response=>{
+        if(!response.ok)throw new Error("Could not load public business knowledge");
+        return response.json();
+      })
+      .then(payload=>{
+        if(!cancelled)setKnowledge({faqs:payload.faqs||[],services:payload.services||[]});
+      })
+      .catch(error=>{
+        if(!cancelled){setKnowledge({faqs:[],services:[]});console.error("Knowledge lookup error",error.message);}
       });
-    });
     return () => { cancelled = true; };
   }, [user?.id]);
 
@@ -146,6 +149,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
 
     try {
       const payload = buildAssistantRequestPayload(nextText, user, nextConversation, knowledge, { previewOnly });
+      payload.requestId = crypto.randomUUID();
       setIsTyping(true);
       const response = await fetch(`${API_BASE_URL}/assistant-reply`, {
         method: "POST",
@@ -170,6 +174,37 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
         ...m,
         { from: "ai", text: fallback, offline: true },
       ]);
+    }
+  };
+
+  const submitBookingRequest = async () => {
+    if (bookingBusy || !user?.id || previewOnly) return;
+    setBookingBusy(true);
+    setBookingNotice("");
+    try {
+      if (!booking.startAt) throw new Error("Choose a date and time.");
+      const timestamp = new Date(booking.startAt);
+      if (!Number.isFinite(timestamp.getTime())) throw new Error("Invalid appointment time.");
+      const response = await fetch(`${API_BASE_URL}/booking-requests`, {
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          businessId:user.id,serviceId:booking.serviceId,
+          customerName:booking.name,customerContact:booking.contact,
+          startAt:timestamp.toISOString(),requestId:booking.requestId,
+        }),
+      });
+      const result = await response.json().catch(()=>({}));
+      if (!response.ok || result.status!=="pending") {
+        throw new Error(result.error || "Could not save booking request.");
+      }
+      setBookingNotice("Your request has been saved for staff review. It is NOT a confirmed appointment.");
+      setShowBookingForm(false);
+      setBooking({name:"",contact:"",serviceId:"",startAt:"",requestId:crypto.randomUUID()});
+    } catch(error) {
+      setBookingNotice(error.message || "Booking request failed.");
+    } finally {
+      setBookingBusy(false);
     }
   };
 
@@ -262,8 +297,34 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
               </div>
             )}
             {bookingNotice && <div className="widget-booking-note">{bookingNotice}</div>}
+            {showBookingForm && !previewOnly && (
+              <div className="panel" style={{padding:12,marginTop:10}}>
+                <p className="panel-title">Request an appointment</p>
+                <p className="panel-help">Times are entered in your device timezone. Staff must confirm the request.</p>
+                <input className="field-input" placeholder="Your name" value={booking.name}
+                  onChange={e=>setBooking(b=>({...b,name:e.target.value}))} />
+                <input className="field-input" placeholder="Email or phone" value={booking.contact}
+                  onChange={e=>setBooking(b=>({...b,contact:e.target.value}))} />
+                <select className="field-input" value={booking.serviceId}
+                  onChange={e=>setBooking(b=>({...b,serviceId:e.target.value}))}>
+                  <option value="">Choose a service</option>
+                  {knowledge.services.map(service=><option key={service.id} value={service.id}>
+                    {service.name} ({service.duration || "duration not set"})
+                  </option>)}
+                </select>
+                <input className="field-input" type="datetime-local" value={booking.startAt}
+                  onChange={e=>setBooking(b=>({...b,startAt:e.target.value}))} />
+                <button className="btn btn--amber" disabled={bookingBusy||!booking.serviceId}
+                  onClick={submitBookingRequest}>{bookingBusy?"Submitting...":"Submit booking request"}</button>
+              </div>
+            )}
           </div>
           <div className="widget-quick-replies">
+            {!previewOnly && user?.id && (
+              <button className="quick-reply" onClick={()=>setShowBookingForm(v=>!v)} disabled={!enabled}>
+                {showBookingForm ? "Close request" : "Request appointment"}
+              </button>
+            )}
             {quickReplies.map((qr) => (
               <button key={qr.label} className="quick-reply" onClick={() => send(qr.reply)} disabled={!enabled}>{qr.label}</button>
             ))}

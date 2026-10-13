@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
+import { buildBusinessProfileUpdate } from "./businessProfileFields";
 import { getPlanDetails, getTrialEndsAt } from "./billingLogic";
 import {
   LayoutDashboard, Building2, HelpCircle, ListChecks, Clock, Bot,
@@ -232,16 +233,16 @@ export function OverviewPage({ user, onUpdateUser }) {
 
 export function BusinessProfilePage({ user, onUpdateUser }) {
   const [form, setForm] = useState({
-    name: user?.business || "Bloom & Co. Salon",
-    category: user?.businessType || "Salon & Beauty",
+    name: user?.business || "",
+    category: user?.businessType || "Other",
     customBusinessType: user?.customBusinessType || "",
-    description: user?.description || "A neighborhood salon specializing in cuts, color, and styling.",
-    phone: "(555) 210-8842",
-    email: user?.email || "hello@bloomandco.com",
-    website: "bloomandco.com",
-    serviceName: user?.serviceName || "Dreadlocks",
-    price: user?.price || "$180",
-    hours: user?.hours || "Mon-Sat 9:00 AM - 6:00 PM",
+    description: user?.description || "",
+    phone: user?.phone || "",
+    email: user?.contactEmail || "",
+    website: user?.website || "",
+    serviceName: user?.serviceName || "",
+    price: user?.price || "",
+    hours: user?.hours || "",
   });
   const [saveState, setSaveState] = useState("idle");
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -250,37 +251,31 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
     if (!user) return;
     setForm((current) => ({
       ...current,
-      name: user?.business || current.name,
-      category: user?.businessType || current.category,
+      name: user?.business || "",
+      category: user?.businessType || "Other",
       customBusinessType: user?.customBusinessType || current.customBusinessType,
-      email: user?.email || current.email,
-      serviceName: user?.serviceName || current.serviceName,
+      email: user?.contactEmail ?? "",
+      phone: user?.phone ?? "",
+      website: user?.website ?? "",
+      serviceName: user?.serviceName || "",
       price: user?.price || current.price,
       hours: user?.hours || current.hours,
       description: user?.description || current.description,
     }));
   }, [user?.business, user?.businessType, user?.email]);
 
-  const handleSave = () => {
-    const nextUser = {
-      ...(user || {}),
-      name: form.name.trim() || "My business",
-      business: form.name.trim() || "My business",
-      businessType: form.category || "Other",
-      customBusinessType: form.category === "Other" ? form.customBusinessType.trim() : "",
-      email: form.email.trim().toLowerCase() || (user?.email || ""),
-      serviceName: form.serviceName.trim() || "Main service",
-      price: form.price.trim() || "$100",
-      hours: form.hours.trim() || "by appointment",
-      description: form.description.trim() || "",
-    };
-
-    if (onUpdateUser) {
-      onUpdateUser(nextUser);
+  const handleSave = async () => {
+    if (saveState === "saving") return;
+    setSaveState("saving");
+    try {
+      const nextUser = buildBusinessProfileUpdate(form,user);
+      if (!onUpdateUser) throw new Error("Profile saving is unavailable");
+      await onUpdateUser(nextUser);
+      setSaveState("saved");
+    } catch (error) {
+      console.error("Business profile save failed:",error.message);
+      setSaveState("error");
     }
-
-    setSaveState("saved");
-    window.setTimeout(() => setSaveState("idle"), 1800);
   };
 
   return (
@@ -304,13 +299,14 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
           <textarea className="field-input field-textarea" rows={3} value={form.description} onChange={set("description")} />
         </label>
         <TextField label="Phone" value={form.phone} onChange={set("phone")} />
-        <TextField label="Email" type="email" value={form.email} onChange={set("email")} />
+        <TextField label="Public contact email (not login email)" type="email" value={form.email} onChange={set("email")} />
         <TextField label="Website" value={form.website} onChange={set("website")} />
         <TextField label="Service name" value={form.serviceName} onChange={set("serviceName")} />
         <TextField label="Price" value={form.price} onChange={set("price")} />
         <TextField label="Hours" value={form.hours} onChange={set("hours")} />
         {saveState === "saved" && <p className="save-status">Saved successfully</p>}
-        <button className="btn btn--amber" onClick={handleSave}>Save changes</button>
+        {saveState === "error" && <p className="auth-error">Could not save your business profile. Check your connection and retry.</p>}
+        <button className="btn btn--amber" disabled={saveState === "saving"} onClick={handleSave}>{saveState === "saving" ? "Saving..." : "Save changes"}</button>
       </div>
     </div>
   );
@@ -533,11 +529,17 @@ export function AISettingsPage({ user, onUpdateUser }) {
   const [escalationKeywords, setEscalationKeywords] = useState(user?.escalationKeywords || "refund, complaint, emergency");
   const [saveState, setSaveState] = useState("idle");
 
-  const save = () => {
-    if (!onUpdateUser) return;
-    onUpdateUser({ ...(user || {}), assistantName, tone, greeting, escalationKeywords });
-    setSaveState("saved");
-    window.setTimeout(() => setSaveState("idle"), 1800);
+  const save = async () => {
+    if (saveState === "saving") return;
+    setSaveState("saving");
+    try {
+      if (!onUpdateUser) throw new Error("Assistant settings are unavailable");
+      await onUpdateUser({ ...(user || {}), assistantName, tone, greeting, escalationKeywords });
+      setSaveState("saved");
+    } catch (error) {
+      console.error("Assistant settings save failed:",error.message);
+      setSaveState("error");
+    }
   };
 
   return (
@@ -565,7 +567,8 @@ export function AISettingsPage({ user, onUpdateUser }) {
           </label>
           <TextField label="Escalation keywords (comma separated)" value={escalationKeywords} onChange={(e) => setEscalationKeywords(e.target.value)} />
           {saveState === "saved" && <p className="save-status">Saved successfully</p>}
-          <button className="btn btn--amber" onClick={save}>Save settings</button>
+          {saveState === "error" && <p className="auth-error">Could not save assistant settings. Retry.</p>}
+          <button className="btn btn--amber" disabled={saveState === "saving"} onClick={save}>{saveState === "saving" ? "Saving..." : "Save settings"}</button>
         </div>
       )}
     </div>
@@ -619,13 +622,13 @@ export function StaffPage({ user }) {
     setNotice("");
     setSaving(true);
     try {
-      const { staffMember, inviteSent } = await staffApi("/staff/invite", {
+      const { staffMember, inviteSent, inviteUrl } = await staffApi("/staff/invite", {
         method: "POST",
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
       setStaff((current) => [...current, staffMember]);
       setEmail("");
-      setNotice(inviteSent ? "Invitation email sent." : "Added. They can sign in with their existing account.");
+      setNotice(inviteSent ? "Invitation email sent." : "Invitation created. Share this secure link privately: " + inviteUrl);
     } catch (inviteError) {
       console.error("Staff invite error:", inviteError);
       setError(inviteError.message || "Couldn't invite that staff member.");
@@ -712,25 +715,20 @@ export function BookingsPage({ user }) {
   }, [user?.id, canManageBookings]);
 
   const updateStatus = async (id, status) => {
-    setBookings((b) => b.map((row) => (row.id === id ? { ...row, status } : row)));
-    const { error } = await supabase.from("bookings").update({ status }).eq("id", id);
-    if (error) console.error("Booking update error:", error);
-  };
-
-  const deleteBooking = async (id) => {
-    if (!window.confirm("Delete this booking permanently?")) return;
     setError("");
-    const { error: deleteError } = await supabase
-      .from("bookings")
-      .delete()
-      .eq("id", id)
-      .eq("business_id", user.id);
-    if (deleteError) {
-      console.error("Booking delete error:", deleteError);
-      setError("Couldn't delete that booking. Please try again.");
+    const {data, error} = await supabase.from("bookings")
+      .update({status}).eq("id",id).eq("business_id",user.id)
+      .select("id,status").maybeSingle();
+    if (error || !data) {
+      setError("Booking update was not saved. Another booking may already occupy that time.");
       return;
     }
-    setBookings((current) => current.filter((row) => row.id !== id));
+    setBookings((b) => b.map((row) => (row.id === id ? { ...row, status: data.status } : row)));
+  };
+
+  const cancelBooking = async (id) => {
+    if (!window.confirm("Cancel this appointment? The record will be preserved for auditing.")) return;
+    await updateStatus(id,"canceled");
   };
 
   const exportCsv = () => {
@@ -775,10 +773,12 @@ export function BookingsPage({ user }) {
                     <span className={`badge ${b.status === "confirmed" ? "badge--green" : "badge--amber"}`}>{b.status}</span>
                   </td>
                   <td className="row-actions">
-                    {b.status !== "confirmed" && (
+                    {b.status === "pending" && (
                       <button className="btn btn--outline" onClick={() => updateStatus(b.id, "confirmed")}>Confirm</button>
                     )}
-                    <button className="icon-btn" onClick={() => deleteBooking(b.id)} aria-label="Delete booking" title="Delete booking"><Trash2 className="icon-btn-icon" /></button>
+                    {["pending","confirmed"].includes(b.status) && (
+                      <button className="icon-btn" onClick={() => cancelBooking(b.id)} aria-label="Cancel booking" title="Cancel booking"><Trash2 className="icon-btn-icon" /></button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -1081,6 +1081,25 @@ export function BillingPage({ user, onUpdateUser }) {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [cancelScheduled, setCancelScheduled] = useState(user?.cancelAtPeriodEnd === true);
+
+  const cancelAtPeriodEnd = async () => {
+    if (!window.confirm("Keep your current paid access until the end of the purchased term, then stop?")) return;
+    setError("");
+    setIsSubmitting(true);
+    try {
+      const {data:{session}}=await supabase.auth.getSession();
+      if(!session)throw new Error("Sign in again.");
+      const response=await fetch(`${API_BASE_URL}/subscriptions/cancel-at-period-end`,{
+        method:"POST",headers:{Authorization:`Bearer ${session.access_token}`},
+      });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(result.error||"Unable to cancel subscription.");
+      setMessage(`Cancellation scheduled. Access continues until ${new Date(result.paidThrough).toLocaleDateString()}.`);
+      setCancelScheduled(true);
+    }catch(error){setError(error.message||"Unable to save cancellation preference");}
+    finally{setIsSubmitting(false);}
+  };
 
   const trialEndsAt = user?.trialEndsAt ? new Date(user.trialEndsAt) : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
   const isTrialExpired = user?.trialActive === false || trialEndsAt <= new Date();
@@ -1146,6 +1165,7 @@ export function BillingPage({ user, onUpdateUser }) {
       window.localStorage.setItem("nightline-plan-selection", JSON.stringify({
         plan, billingPeriod, mode: "paid", currency: "NGN",
       }));
+      if (payload.reference) window.localStorage.setItem("ezeji-last-checkout-ref", payload.reference);
       window.location.href = payload.url;
     } catch (err) {
       setError(err.message || "Payment setup failed. Please try again.");
@@ -1165,6 +1185,16 @@ export function BillingPage({ user, onUpdateUser }) {
       <div className="panel">
         <h2 className="panel-title">Change plan</h2>
         <p className="panel-help">Choosing a paid plan takes you to Paystack's real, secure checkout page - your plan only activates once payment is confirmed.</p>
+        {user?.subscriptionEndsAt && (
+          <p className="panel-help">Paid access through: {new Date(user.subscriptionEndsAt).toLocaleDateString()}.
+            One-time purchases do not renew automatically.</p>
+        )}
+        {user?.paymentStatus === "active" && !cancelScheduled && (
+          <button className="btn btn--outline" onClick={cancelAtPeriodEnd} disabled={isSubmitting}>
+            Cancel at end of paid term
+          </button>
+        )}
+        {cancelScheduled && <p className="panel-help">Cancellation scheduled for the end of your paid term.</p>}
         <div className="billing-form">
           <label className="field">
             <span className="field-label">Plan</span>

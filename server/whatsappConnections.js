@@ -24,7 +24,10 @@ async function business(req,db){
   const auth=await db.auth.getUser(match[1]);
   if(auth.error||!auth.data?.user)throw error(401,'Invalid session');
   const p=await db.from('profiles').select('id,plan,payment_status').eq('id',auth.data.user.id).maybeSingle();
-  if(p.error||!p.data||!['Professional','Business'].includes(p.data.plan)||p.data.payment_status!=='active')throw error(403,'Active premium owner required');
+  if(p.error||!p.data||!['Professional','Business'].includes(p.data.plan))throw error(403,'Active premium owner required');
+  const entitlement=await db.rpc('has_current_paid_entitlement',{p_business_id:p.data.id});
+  if(entitlement.error)throw error(503,'Subscription lookup unavailable');
+  if(entitlement.data!==true)throw error(403,'Subscription expired');
   return p.data.id;
 }
 const wrap=fn=>(req,res)=>Promise.resolve(fn(req,res)).catch(e=>res.status(e.status||503).json({error:e.status&&e.status<500?e.message:'Integration failed'}));
