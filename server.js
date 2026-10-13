@@ -461,7 +461,7 @@ app.get('/verify-paystack/:reference', async (req, res) => {
       .eq('business_id', auth.user.id).maybeSingle();
     if (attemptError) throw attemptError;
     if (!attempt) return res.status(404).json({ error: 'Payment reference not found' });
-    if (attempt.status === 'review_required' || attempt.status === 'expired') {
+    if (attempt.status === 'review_required') {
       return res.json({ verified: false, status: attempt.status, requiresReview: true });
     }
     if (attempt.status === 'failed') return res.json({ verified: false, status: 'failed' });
