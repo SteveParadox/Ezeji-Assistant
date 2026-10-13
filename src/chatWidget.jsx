@@ -146,6 +146,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
 
     try {
       const payload = buildAssistantRequestPayload(nextText, user, nextConversation, knowledge, { previewOnly });
+      payload.requestId = crypto.randomUUID();
       setIsTyping(true);
       const response = await fetch(`${API_BASE_URL}/assistant-reply`, {
         method: "POST",
