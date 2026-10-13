@@ -282,6 +282,8 @@ async function recordSuccessfulPayment({ provider, reference, plan, billingPerio
       throw new Error('Conflicting payment reference');
     }
     if (prior.status === 'paid') return;
+    // Refunded/failed references must never be resurrected by a replay.
+    throw new Error('Previously recorded payment is not eligible for activation');
   }
   let profile = null;
 
