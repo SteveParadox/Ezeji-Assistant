@@ -203,3 +203,20 @@ test('WhatsApp connection cannot be disconnected during an in-flight verificatio
   await expect(page.getByText('Saved successfully',{exact:true})).toBeVisible();
   await expect(disconnect).toBeEnabled();
 });
+
+
+test('a stale success response cannot falsely confirm a booking',async({page})=>{
+  await setupApp(page);
+  await page.route('https://ezeji-test.supabase.co/rest/v1/bookings',async route=>{
+    if(route.request().method()==='PATCH'){
+      return route.fulfill({json:[{id:'booking-1',status:'pending'}],headers:{'content-type':'application/json'}});
+    }
+    return route.fallback();
+  });
+  await page.goto('/?view=dashboard&tab=bookings');
+  await page.getByRole('button',{name:'Confirm',exact:true}).click();
+  await page.getByRole('button',{name:'Confirm booking',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('not saved');
+  await expect(page.getByRole('cell',{name:'pending',exact:true})).toBeVisible();
+  await expect(page.getByRole('cell',{name:'confirmed',exact:true})).toHaveCount(0);
+});
