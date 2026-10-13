@@ -220,6 +220,7 @@ export default function NightlineApp() {
 
   const handleLogout = async () => {
     localStorage.removeItem(RECOVERY_FLAG);
+    sessionStorage.removeItem("ezeji-staff-business");
     recoveryMode.current = false;
     await supabase.auth.signOut();
     setUser(null);
