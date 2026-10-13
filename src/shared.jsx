@@ -161,7 +161,7 @@ export function TextField({ label, type = "text", icon: Icon, value, onChange, p
           placeholder={placeholder}
         />
         {isPassword && (
-          <button type="button" className="field-eye" onClick={() => setShow((s) => !s)}>
+          <button type="button" className="field-eye" aria-label={show ? "Hide password" : "Show password"} aria-pressed={show} onClick={() => setShow((s) => !s)}>
             {show ? <EyeOff className="field-icon" /> : <Eye className="field-icon" />}
           </button>
         )}
