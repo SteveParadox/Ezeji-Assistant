@@ -4,6 +4,8 @@ import dotenv from 'dotenv';
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { attachStaffRoutes } from './server/staffRoutes.js';
+import { ensureOwnerBusiness } from './server/businessProvisioning.js';
+import { validatePaymentReplay, isSameActiveSubscription } from './server/paymentReplay.js';
 import { attachWhatsAppRoutes, decryptToken } from './server/whatsappConnections.js';
 
 dotenv.config();
@@ -177,6 +179,27 @@ const PRICE_MAP_NGN_KOBO = {
   Business: { monthly: 7500000, yearly: 75000000 },       // NGN 75,000 / NGN 750,000
 };
 
+// The service-role database client is server-only. The bearer token is
+// verified on every request, and the owner ID is always derived from it.
+app.post('/business/profile/ensure', async (req, res) => {
+  try {
+    if (!supabase) return res.status(503).json({ error: 'Database unavailable' });
+    const bearer = /^Bearer (\S+)$/i.exec(req.headers.authorization || '');
+    if (!bearer) return res.status(401).json({ error: 'Sign in required' });
+    const { data: auth, error: authError } = await supabase.auth.getUser(bearer[1]);
+    if (authError || !auth?.user) return res.status(401).json({ error: 'Invalid session' });
+    if (!auth.user.email_confirmed_at) return res.status(403).json({ error: 'Verify your email before onboarding.' });
+    const result = await ensureOwnerBusiness(
+      supabase, auth.user.id, req.body?.fields, auth.user.user_metadata?.business_registration
+    );
+    return res.json(result);
+  } catch (error) {
+    if (error.status === 422) return res.status(422).json({ error: error.message });
+    console.error('Business onboarding error:', error.message);
+    return res.status(503).json({ error: 'Business setup is temporarily unavailable. Please retry.' });
+  }
+});
+
 app.post('/create-checkout-session', async (req,res)=>{
   try {
     if (!supabase) return res.status(503).json({error:'Database unavailable'});
@@ -184,10 +207,11 @@ app.post('/create-checkout-session', async (req,res)=>{
     if(!bearer) return res.status(401).json({error:'Sign in required'});
     const {data:auth,error:authError}=await supabase.auth.getUser(bearer[1]);
     if(authError||!auth?.user) return res.status(401).json({error:'Invalid session'});
-    const {data:business,error:businessError}=await supabase.from('profiles').select('id,business').eq('id',auth.user.id).maybeSingle();
+    const {data:business,error:businessError}=await supabase.from('profiles').select('id,business,plan,payment_status,billing_period').eq('id',auth.user.id).maybeSingle();
     if(businessError||!business) return res.status(403).json({error:'Business account not found'});
     const {plan,billingPeriod}=req.body||{};
     if(!Object.hasOwn(PRICE_MAP_NGN_KOBO,plan)||!['monthly','yearly'].includes(billingPeriod)) return res.status(400).json({error:'Invalid plan or billing period'});
+    if(isSameActiveSubscription(business,plan,billingPeriod)) return res.status(409).json({error:'This subscription is already active.'});
     return await handlePaystackCheckout({
       unitAmount:PRICE_MAP_NGN_KOBO[plan][billingPeriod],
       email:auth.user.email,plan,billingPeriod,
@@ -243,6 +267,14 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
 async function recordSuccessfulPayment({ provider, reference, plan, billingPeriod, currency, email, business, businessId, amount }) {
   if(!supabase) throw new Error('Payment database unavailable');
   if(!businessId || !Object.hasOwn(PRICE_MAP_NGN_KOBO,plan) || !['monthly','yearly'].includes(billingPeriod) || (currency||'').toUpperCase()!=='NGN' || amount!==PRICE_MAP_NGN_KOBO[plan][billingPeriod]) throw new Error('Invalid payment metadata or amount');
+  const { data: prior, error: priorError } = await supabase.from('invoices')
+    .select('business_id,provider,plan,billing_period,amount,currency,status')
+    .eq('provider', provider).eq('provider_reference', reference).maybeSingle();
+  if (priorError) throw priorError;
+  const action = validatePaymentReplay(prior, {
+    reference, provider, plan, businessId, billingPeriod, currency, amount,
+  });
+  if (action === 'already_settled') return;
   let profile = null;
 
   if (businessId) {
@@ -284,6 +316,7 @@ async function recordSuccessfulPayment({ provider, reference, plan, billingPerio
 }
 
 app.post('/webhooks/paystack', async (req, res) => {
+  if (!process.env.PAYSTACK_SECRET_KEY) return res.status(503).json({ error: 'Payment webhook not configured.' });
   const signature = req.headers['x-paystack-signature'];
   const expected = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY || '').update(req.rawBody || '').digest('hex');
   const signatureBuffer = Buffer.from(`${signature || ''}`);
@@ -315,21 +348,35 @@ app.post('/webhooks/paystack', async (req, res) => {
 
 // Recommended once live: lets you confirm a payment server-side rather
 // than trusting the browser redirect alone.
+// Verification is private to the authenticated business owner. Do not return
+// raw Paystack customer or authorization details to arbitrary reference lookups.
 app.get('/verify-paystack/:reference', async (req, res) => {
-  const paystackKey = process.env.PAYSTACK_SECRET_KEY;
-  if (!paystackKey) {
-    return res.status(400).json({ error: 'Paystack is not configured yet.' });
-  }
-
   try {
-    const response = await fetch(`https://api.paystack.co/transaction/verify/${req.params.reference}`, {
-      headers: { Authorization: `Bearer ${paystackKey}` },
+    if (!supabase) return res.status(503).json({ error: 'Database unavailable' });
+    const bearer = /^Bearer (\S+)$/i.exec(req.headers.authorization || '');
+    if (!bearer) return res.status(401).json({ error: 'Sign in required' });
+    const { data: auth, error: authError } = await supabase.auth.getUser(bearer[1]);
+    if (authError || !auth?.user) return res.status(401).json({ error: 'Invalid session' });
+    const reference = req.params.reference;
+    if (!/^[a-zA-Z0-9._-]{1,120}$/.test(reference)) {
+      return res.status(400).json({ error: 'Invalid reference' });
+    }
+    const { data: invoice, error: invoiceError } = await supabase.from('invoices')
+      .select('business_id,status').eq('provider', 'paystack')
+      .eq('provider_reference', reference).eq('business_id', auth.user.id).maybeSingle();
+    if (invoiceError) throw invoiceError;
+    if (!invoice) return res.status(404).json({ error: 'Payment reference not found' });
+    if (!process.env.PAYSTACK_SECRET_KEY) return res.status(503).json({ error: 'Payment verification is unavailable' });
+    const response = await fetch('https://api.paystack.co/transaction/verify/' + encodeURIComponent(reference), {
+      headers: { Authorization: 'Bearer ' + process.env.PAYSTACK_SECRET_KEY },
+      signal: AbortSignal.timeout(15000),
     });
+    if (!response.ok) throw new Error('Paystack verification unavailable');
     const payload = await response.json();
-    res.json(payload);
+    return res.json({ verified: invoice.status === 'paid' && payload.data?.status === 'success' });
   } catch (error) {
-    console.error('paystack verify error:', error);
-    res.status(500).json({ error: 'Unable to verify transaction.' });
+    console.error('Paystack verification error:', error.message);
+    return res.status(503).json({ error: 'Unable to verify transaction' });
   }
 });
 

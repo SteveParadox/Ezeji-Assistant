@@ -2,9 +2,10 @@ import React, { useState } from "react";
 import { supabase } from "./supabaseClient";
 import { getPlanDetails } from "./billingLogic";
 import { Mail, Lock, CheckCircle2, Building2 } from "lucide-react";
-import { Logo, TextField, AuthShell, getStoredPlanSelection, resolveSignedInUser, upsertProfile, API_BASE_URL } from "./shared";
+import { TextField, AuthShell, getStoredPlanSelection, fetchProfile } from "./shared";
+import { callbackUrl, ensureBusinessProfile, registerBusiness, getRegistrationDetails, startAuthenticatedCheckout, selectedPaidPlan, RECOVERY_FLAG } from "./authLifecycle";
 
-export function LoginScreen({ go, onLogin }) {
+export function LoginScreen({ go }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -30,9 +31,9 @@ export function LoginScreen({ go, onLogin }) {
         return;
       }
 
-      const profile = await resolveSignedInUser(data.user, data.session.access_token);
-      onLogin(profile || { id: data.user.id, email: data.user.email });
-      go("dashboard");
+      // The single auth-state listener in NightlineApp resolves the business
+      // before routing to the dashboard or checkout.
+      if (!data.session) throw new Error("Your email must be verified before signing in.");
     } catch (loginError) {
       console.error("sign-in error:", loginError);
       setError(loginError.message || "Unable to sign in right now. Please try again.");
@@ -66,7 +67,7 @@ export function LoginScreen({ go, onLogin }) {
   );
 }
 
-export function SignupScreen({ go, onLogin }) {
+export function SignupScreen({ go }) {
   const [form, setForm] = useState(() => {
     const selection = getStoredPlanSelection();
     return {
@@ -91,62 +92,22 @@ export function SignupScreen({ go, onLogin }) {
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const handleSubmit = async () => {
-    if (form.selectedMode === "paid") {
-      go("checkout");
-      return;
-    }
-    if (!form.email.trim() || !form.password || !form.business.trim()) {
-      setError("Business name, email, and password are required.");
-      return;
-    }
+    if (isSubmitting) return;
     setError("");
     setIsSubmitting(true);
-
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email: form.email.trim().toLowerCase(),
-      password: form.password,
-    });
-
-    if (signUpError) {
-      setError(signUpError.message);
-      setIsSubmitting(false);
-      return;
-    }
-
-    if (!data.session) {
-      setIsSubmitting(false);
-      setError("Check your email to confirm your account before logging in.");
-      return;
-    }
-
-    const profileFields = {
-      name: form.name.trim() || "New user",
-      business: form.business.trim() || "My business",
-      businessType: form.businessType || "Restaurant",
-      customBusinessType: form.businessType === "Other" ? form.customBusinessType.trim() : "",
-      serviceName: form.serviceName.trim() || "Main service",
-      price: form.price.trim() || "$100",
-      hours: form.hours.trim() || "by appointment",
-      description: form.description.trim() || "",
-      trialActive: form.selectedMode !== "paid",
-      trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
-      plan: form.selectedPlan || "14-day trial",
-      paymentStatus: form.selectedMode === "paid" ? "active" : "trial",
-      billingPeriod: form.selectedBillingPeriod || "monthly",
-      currency: form.selectedCurrency || "USD",
-    };
-
     try {
-      await upsertProfile(data.user.id, profileFields);
+      const result = await registerBusiness(form);
+      if (!result.session) {
+        go("verify", { email: result.email });
+        return;
+      }
+      // With confirmation disabled Supabase signs in immediately.
+      // The app's auth-state manager provisions the owner account.
     } catch (err) {
+      setError(err.message || "Registration failed. Please try again.");
+    } finally {
       setIsSubmitting(false);
-      setError("Account created, but saving your business profile failed. Try again from the dashboard.");
-      return;
     }
-
-    setIsSubmitting(false);
-    onLogin({ id: data.user.id, email: data.user.email, ...profileFields });
-    go("dashboard");
   };
 
   return (
@@ -202,111 +163,53 @@ export function SignupScreen({ go, onLogin }) {
   );
 }
 
-export function CheckoutScreen({ go, onLogin }) {
-  const selection = getStoredPlanSelection();
-  const [form, setForm] = useState({
-    name: "",
-    email: "",
-    business: "",
-    password: "",
-  });
-  const [isSubmitting, setIsSubmitting] = useState(false);
+export function CheckoutScreen({ go, user }) {
+  const selection = selectedPaidPlan(getStoredPlanSelection());
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-
-  const planName = selection.plan || "Professional";
-  const billingPeriod = selection.billingPeriod || "monthly";
-  const planDetails = getPlanDetails(planName, "NGN", billingPeriod);
+  const planDetails = selection ? getPlanDetails(selection.plan, "NGN", selection.billingPeriod) : null;
 
   const handlePay = async () => {
-    if (!form.name.trim() || !form.email.trim() || !form.business.trim() || !form.password.trim()) {
-      setError("Please complete your account details before paying.");
-      return;
-    }
-
+    if (submitting) return;
+    setSubmitting(true);
     setError("");
-    setIsSubmitting(true);
-
     try {
-      // Create the real account FIRST - this is what was missing before:
-      // a checkout that collected a password but never actually signed
-      // anyone up, leaving no way to log in after paying.
-      const { data, error: signUpError } = await supabase.auth.signUp({
-        email: form.email.trim().toLowerCase(),
-        password: form.password,
-      });
-
-      if (signUpError) {
-        setError(signUpError.message);
-        setIsSubmitting(false);
-        return;
-      }
-      if (!data.session) {
-        setError("Check your email to confirm your account, then come back to complete payment from Billing.");
-        setIsSubmitting(false);
-        return;
-      }
-
-      const profileFields = {
-        name: form.name.trim(),
-        business: form.business.trim(),
-        businessType: "Restaurant",
-        serviceName: "Main service",
-        price: "",
-        hours: "by appointment",
-        description: "",
-        trialActive: false,
-        trialEndsAt: new Date().toISOString(),
-        plan: planName,
-        paymentStatus: "pending",
-        billingPeriod,
-        currency: "NGN",
-      };
-      await upsertProfile(data.user.id, profileFields);
-      onLogin({ id: data.user.id, email: data.user.email, ...profileFields });
-
-      const response = await fetch(`${API_BASE_URL}/create-checkout-session`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session.access_token}` },
-        body: JSON.stringify({
-          plan: planName,
-          billingPeriod,
-          email: form.email.trim().toLowerCase(),
-          business: form.business.trim(),
-          name: form.name.trim(),
-          businessId: data.user.id,
-        }),
-      });
-
-      const payload = await response.json();
-
-      if (!response.ok || !payload.url) {
-        throw new Error(payload.error || "Checkout could not be created.");
-      }
-
-      window.location.href = payload.url;
+      const { data: { session } } = await supabase.auth.getSession();
+      const url = await startAuthenticatedCheckout(session, selection);
+      window.location.assign(url);
     } catch (err) {
-      setError(err.message || "Payment setup failed. Please try again.");
-      setIsSubmitting(false);
+      setError(err.message || "Payment setup failed. Please retry.");
+      setSubmitting(false);
     }
   };
 
   return (
-    <AuthShell
-      footer={<button className="link-btn" onClick={() => go("landing")}>Back to landing</button>}
-    >
-      <h1 className="auth-title">Checkout</h1>
-      <p className="auth-sub">Create your account and pay securely with Paystack for the {planName} plan.</p>
+    <AuthShell footer={<button className="link-btn" onClick={() => go("landing")}>Back to landing</button>}>
+      <h1 className="auth-title">Secure checkout</h1>
+      <p className="auth-sub">Your business must be verified before Paystack checkout.</p>
       <div className="auth-form">
-        <TextField label="Your name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Maya Reyes" />
-        <TextField label="Business name" value={form.business} onChange={(e) => setForm((f) => ({ ...f, business: e.target.value }))} placeholder="Bloom & Co." />
-        <TextField label="Email" type="email" icon={Mail} value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="you@business.com" />
-        <TextField label="Create password" type="password" icon={Lock} value={form.password} onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))} placeholder="********" />
-        <div className="panel" style={{ marginBottom: 16, padding: 16 }}>
-          <p className="stat-label">Amount due</p>
-          <p className="current-plan-name">{planDetails.displayPrice}/{billingPeriod === "yearly" ? "year" : "month"}</p>
-          <p className="panel-help">You'll be taken to Paystack's secure page to enter your card details. Your account is created now; your plan activates automatically once Paystack confirms payment.</p>
-        </div>
-        <button className="btn btn--amber btn--full btn--lg" onClick={handlePay} disabled={isSubmitting}>{isSubmitting ? "Setting up..." : `Continue to Paystack`}</button>
+        {selection && <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
+          <p className="stat-label">{selection.plan} plan</p>
+          <p className="current-plan-name">{planDetails.displayPrice}/{selection.billingPeriod === "yearly" ? "year" : "month"}</p>
+        </div>}
+        {!user ? (
+          <>
+            <p className="panel-help">Create your account or sign in to continue. Your plan will be saved.</p>
+            <button className="btn btn--amber btn--full" onClick={() => go("signup")}>Create account</button>
+            <button className="link-btn" onClick={() => go("login")}>Already registered? Log in</button>
+          </>
+        ) : user.isStaff ? (
+          <p className="auth-error">Only a business owner can manage subscription checkout.</p>
+        ) : user.paymentStatus === "active" && user.plan === selection?.plan && user.billingPeriod === selection?.billingPeriod ? (
+          <>
+            <p>You're already subscribed to this plan.</p>
+            <button className="btn btn--amber btn--full" onClick={() => go("dashboard")}>Dashboard</button>
+          </>
+        ) : (
+          <button className="btn btn--amber btn--full btn--lg" disabled={submitting || !selection} onClick={handlePay}>
+            {submitting ? "Connecting to Paystack..." : "Continue to Paystack"}
+          </button>
+        )}
         {error && <p className="auth-error">{error}</p>}
       </div>
     </AuthShell>
@@ -327,17 +230,17 @@ export function ForgotScreen({ go }) {
     setError("");
     setIsSubmitting(true);
 
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-      email.trim().toLowerCase(),
-      { redirectTo: window.location.origin }
-    );
-
-    setIsSubmitting(false);
-    if (resetError) {
-      setError(resetError.message);
-      return;
+    try {
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(
+        email.trim().toLowerCase(), { redirectTo: callbackUrl("recovery") }
+      );
+      if (resetError) throw resetError;
+      setSent(true);
+    } catch (err) {
+      setError(err.message || "Could not request a password reset.");
+    } finally {
+      setIsSubmitting(false);
     }
-    setSent(true);
   };
 
   return (
@@ -361,6 +264,164 @@ export function ForgotScreen({ go }) {
           <p>We sent a link to <strong>{email || "your email"}</strong>.</p>
         </div>
       )}
+    </AuthShell>
+  );
+}
+
+export function VerificationPendingScreen({ go, email }) {
+  const [address, setAddress] = useState(email || "");
+  const [state, setState] = useState("");
+  const [busy, setBusy] = useState(false);
+  const resend = async () => {
+    if (!address.trim() || busy) return;
+    setBusy(true);
+    setState("");
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: address.trim().toLowerCase(),
+        options: { emailRedirectTo: callbackUrl("confirm") },
+      });
+      if (error) throw error;
+      setState("If the account is awaiting verification, another email has been requested.");
+    } catch (err) {
+      setState(err.message || "Resend failed. Try again later.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AuthShell footer={<button className="link-btn" onClick={() => go("login")}>Back to login</button>}>
+      <h1 className="auth-title">Check your email</h1>
+      <p className="auth-sub">Confirm your email address, then return to Ezeji Assistant. We will continue your business setup and selected plan.</p>
+      <div className="auth-form">
+        <TextField label="Registration email" type="email" icon={Mail} value={address} onChange={(e) => setAddress(e.target.value)} />
+        <button className="btn btn--amber btn--full" onClick={resend} disabled={busy}>{busy ? "Sending..." : "Resend confirmation"}</button>
+        {state && <p role="status">{state}</p>}
+        <button className="link-btn" onClick={() => go("login")}>Already verified? Log in</button>
+      </div>
+    </AuthShell>
+  );
+}
+
+export function ResetPasswordScreen({ go }) {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+
+  const save = async () => {
+    if (busy) return;
+    if (password.length < 8) { setError("Use at least 8 characters."); return; }
+    if (password !== confirm) { setError("Passwords do not match."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Recovery session expired. Request another reset link.");
+      const { error: updateError } = await supabase.auth.updateUser({ password });
+      if (updateError) throw updateError;
+      localStorage.removeItem(RECOVERY_FLAG);
+      setDone(true);
+      setPassword("");
+      setConfirm("");
+      await supabase.auth.signOut();
+    } catch (err) {
+      setError(err.message || "Password update failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AuthShell footer={<button className="link-btn" onClick={() => go("login")}>Back to login</button>}>
+      <h1 className="auth-title">Choose a new password</h1>
+      {done ? (
+        <div className="auth-form">
+          <p>Your password has been changed. Sign in with your new password.</p>
+          <button className="btn btn--amber btn--full" onClick={() => go("login")}>Log in</button>
+        </div>
+      ) : (
+        <div className="auth-form">
+          <TextField label="New password (8+ characters)" type="password" icon={Lock} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <TextField label="Confirm new password" type="password" icon={Lock} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+          {error && <p className="auth-error" role="alert">{error}</p>}
+          <button className="btn btn--amber btn--full btn--lg" disabled={busy} onClick={save}>{busy ? "Saving..." : "Update password"}</button>
+        </div>
+      )}
+    </AuthShell>
+  );
+}
+
+export function BusinessSetupScreen({ go, session, onReady }) {
+  const defaults = getRegistrationDetails(session?.user) || {};
+  const [form, setForm] = useState({ name: defaults.name || "", business: defaults.business || "", businessType: defaults.businessType || "Other" });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (busy) return;
+    if (!form.business.trim()) { setError("Enter your business name."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      await ensureBusinessProfile(session, form);
+      const profile = await fetchProfile(session.user.id, session.user.email, session.user.user_metadata);
+      if (!profile) throw new Error("Business setup is pending. Please retry.");
+      onReady(profile);
+    } catch (err) {
+      setError(err.message || "Business setup failed. Please retry.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AuthShell footer={<button className="link-btn" onClick={() => supabase.auth.signOut().then(() => go("login"))}>Use another account</button>}>
+      <h1 className="auth-title">Complete business setup</h1>
+      <p className="auth-sub">Your account is verified. Provide the missing business details to continue to your saved plan.</p>
+      <div className="auth-form">
+        <TextField label="Your name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+        <TextField label="Business name" icon={Building2} value={form.business} onChange={(e) => setForm((f) => ({ ...f, business: e.target.value }))} />
+        <button className="btn btn--amber btn--full" onClick={submit} disabled={busy}>{busy ? "Saving..." : "Continue"}</button>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+      </div>
+    </AuthShell>
+  );
+}
+
+export function AuthErrorScreen({ go, error, retry }) {
+  return (
+    <AuthShell footer={<button className="link-btn" onClick={() => go("login")}>Back to login</button>}>
+      <h1 className="auth-title">Account needs attention</h1>
+      <p className="auth-error" role="alert">{error || "Unable to finish authentication."}</p>
+      <button className="btn btn--amber btn--full" onClick={retry}>Try again</button>
+      <button className="link-btn" onClick={() => go("forgot")}>Request a new password link</button>
+    </AuthShell>
+  );
+}
+
+
+export function PaymentPendingScreen({ onCheck, onDashboard }) {
+  const [checking, setChecking] = useState(false);
+  const [message, setMessage] = useState("Your payment is being verified. Your plan only activates after Paystack confirms it.");
+  const refresh = async () => {
+    if (checking) return;
+    setChecking(true);
+    try {
+      const active = await onCheck();
+      if (!active) setMessage("Payment has not been confirmed yet. You can retry without paying a second time.");
+    } catch (error) {
+      setMessage(error.message || "Unable to check payment status. Please retry.");
+    } finally {
+      setChecking(false);
+    }
+  };
+  return (
+    <AuthShell footer={<button className="link-btn" onClick={onDashboard}>Open dashboard</button>}>
+      <h1 className="auth-title">Checking your payment</h1>
+      <p className="auth-sub">{message}</p>
+      <button className="btn btn--amber btn--full" onClick={refresh} disabled={checking}>
+        {checking ? "Checking..." : "Refresh payment status"}
+      </button>
     </AuthShell>
   );
 }

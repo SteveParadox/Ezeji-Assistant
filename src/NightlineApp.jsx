@@ -1,8 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import NightlineLanding from "./NightlineLanding";
 import { supabase } from "./supabaseClient";
-import { fetchPublicProfile, resolveSignedInUser, upsertProfile } from "./shared";
-import { LoginScreen, SignupScreen, CheckoutScreen, ForgotScreen } from "./authScreens";
+import { fetchPublicProfile, fetchProfile, resolveSignedInUser, upsertProfile, getStoredPlanSelection } from "./shared";
+import {
+  LoginScreen, SignupScreen, CheckoutScreen, ForgotScreen, VerificationPendingScreen,
+  ResetPasswordScreen, BusinessSetupScreen, AuthErrorScreen, PaymentPendingScreen,
+} from "./authScreens";
+import {
+  completeAuthCallback, ensureBusinessProfile, getRegistrationDetails,
+  readAuthCallback, hasAuthCallback, scrubAuthCallback, selectedPaidPlan, isSelectedPlanActive, RECOVERY_FLAG, readRecovery, rememberRecovery,
+} from "./authLifecycle";
 import { DashboardShell, DASHBOARD_PAGES } from "./dashboardPages";
 import { ChatWidgetDemo } from "./chatWidget";
 
@@ -14,7 +21,6 @@ function getInitialViewFromUrl() {
 }
 
 function getBusinessIdFromUrl() {
-  if (typeof window === "undefined") return null;
   const params = new URLSearchParams(window.location.search);
   return params.get("biz");
 }
@@ -25,15 +31,94 @@ export default function NightlineApp() {
   const [restoreScroll, setRestoreScroll] = useState(false);
   const [dashTab, setDashTab] = useState("overview");
   const [user, setUser] = useState(null);
+  const [session, setSession] = useState(null);
+  const [pendingEmail, setPendingEmail] = useState("");
+  const [authError, setAuthError] = useState("");
   const [publicChatProfile, setPublicChatProfile] = useState(null);
   const [publicChatLoading, setPublicChatLoading] = useState(false);
+  const authRun = useRef(0);
+  const callbackPending = useRef(hasAuthCallback(readAuthCallback()));
+  const recoveryMode = useRef(
+    readAuthCallback().type === "recovery" ||
+    (typeof localStorage !== "undefined" && !!readRecovery())
+  );
   const ActivePage = DASHBOARD_PAGES[dashTab];
+
+  const go = (nextView, details) => {
+    if (nextView === "verify") setPendingEmail(details?.email || "");
+    setView(nextView);
+  };
+
+  const finishOwnerLogin = useCallback((profile) => {
+    setUser(profile);
+    const selection = selectedPaidPlan(getStoredPlanSelection());
+    const checkoutReturned = new URLSearchParams(window.location.search).get("checkout") === "success";
+    const selectedPlanActive = isSelectedPlanActive(profile, selection);
+    if (selectedPlanActive) {
+      window.localStorage.removeItem("nightline-plan-selection");
+      if (checkoutReturned) {
+        // Otherwise refreshing a settled checkout would re-enter paymentPending
+        // after the selected plan is cleared from local storage.
+        const url = new URL(window.location.href);
+        url.searchParams.delete("checkout");
+        url.searchParams.delete("reference");
+        window.history.replaceState(null, "", url.pathname + url.search);
+      }
+    }
+    if (!profile.isStaff && checkoutReturned && !selectedPlanActive) {
+      setView("paymentPending"); // Active on a different plan is NOT this payment.
+    } else if (!profile.isStaff && selection && !selectedPlanActive) {
+      setView("checkout");
+    } else {
+      setDashTab(profile.isStaff ? "bookings" : "overview");
+      setView("dashboard");
+    }
+  }, []);
+
+  const initializeSession = useCallback(async (nextSession) => {
+    const run = ++authRun.current;
+    if (!nextSession?.user) return;
+    setSession(nextSession);
+    if (recoveryMode.current) {
+      const marker = readRecovery();
+      if (marker?.userId === nextSession.user.id) {
+        setUser(null);
+        setView("resetPassword");
+        return;
+      }
+      recoveryMode.current = false;
+      localStorage.removeItem(RECOVERY_FLAG);
+    }
+    if (getInitialViewFromUrl() === "chatDemo") return;
+    setView("authLoading");
+    setAuthError("");
+    try {
+      let profile = await resolveSignedInUser(nextSession.user, nextSession.access_token);
+      if (run !== authRun.current) return;
+      if (!profile) {
+        const details = getRegistrationDetails(nextSession.user);
+        if (details?.business) {
+          await ensureBusinessProfile(nextSession, details);
+          profile = await fetchProfile(nextSession.user.id, nextSession.user.email, nextSession.user.user_metadata);
+        }
+      }
+      if (run !== authRun.current) return;
+      if (!profile || !profile.isStaff && !profile.business) {
+        setUser(null);
+        setView("businessSetup");
+        return;
+      }
+      finishOwnerLogin(profile);
+    } catch (error) {
+      if (run !== authRun.current) return;
+      setAuthError(error.message || "Account initialization failed. Please retry.");
+      setView("authError");
+    }
+  }, [finishOwnerLogin]);
 
   useEffect(() => {
     if (view !== "landing" || !restoreScroll) return;
-    const frame = window.requestAnimationFrame(() => {
-      window.scrollTo({ top: landingScrollY, behavior: "auto" });
-    });
+    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: landingScrollY, behavior: "auto" }));
     setRestoreScroll(false);
     return () => window.cancelAnimationFrame(frame);
   }, [view, restoreScroll, landingScrollY]);
@@ -45,85 +130,147 @@ export default function NightlineApp() {
       fetchPublicProfile(businessId).then((profile) => {
         setPublicChatProfile(profile);
         setPublicChatLoading(false);
-      });
+      }).catch(() => setPublicChatLoading(false));
     }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (cancelled || !session) return;
-      const profile = await resolveSignedInUser(session.user, session.access_token);
-      if (cancelled) return;
-      setUser(profile || { id: session.user.id, email: session.user.email });
-      if (profile?.isStaff) {
-        setDashTab("bookings");
-        setView("dashboard");
-      }
+    let mounted = true;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      // Do not await Supabase SDK operations inside this callback.
+      Promise.resolve().then(() => {
+        if (!mounted || callbackPending.current) return;
+        if (event === "PASSWORD_RECOVERY") {
+          recoveryMode.current = true;
+          if (nextSession) rememberRecovery(nextSession);
+          if (nextSession) initializeSession(nextSession);
+          return;
+        }
+        if (event === "SIGNED_OUT") {
+          ++authRun.current;
+          recoveryMode.current = false;
+          localStorage.removeItem(RECOVERY_FLAG);
+          setSession(null);
+          setUser(null);
+          setView((current) => current === "resetPassword" ? current : "login");
+          return;
+        }
+        if (["INITIAL_SESSION", "SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event) && nextSession) {
+          // Token refresh should not tear down an already usable dashboard.
+          if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
+            setSession(nextSession);
+            return;
+          }
+          initializeSession(nextSession);
+        }
+      });
     });
 
+    const callback = readAuthCallback();
+    if (hasAuthCallback(callback)) {
+      (async () => {
+        try {
+          const confirmed = await completeAuthCallback(callback);
+          if (!mounted) return;
+          if (callback.type === "recovery" || callback.otpType === "recovery") {
+            recoveryMode.current = true;
+            rememberRecovery(confirmed);
+          }
+          scrubAuthCallback();
+          callbackPending.current = false;
+          await initializeSession(confirmed);
+        } catch (error) {
+          if (!mounted) return;
+          scrubAuthCallback();
+          localStorage.removeItem(RECOVERY_FLAG);
+          recoveryMode.current = false;
+          callbackPending.current = false;
+          setAuthError(error.message || "The verification or recovery link is invalid or expired.");
+          setView("authError");
+        }
+      })();
+    } else {
+      callbackPending.current = false;
+    }
     return () => {
-      cancelled = true;
+      mounted = false;
+      ++authRun.current;
+      subscription.unsubscribe();
     };
-  }, []);
-
-  const handleLogin = (nextUser) => {
-    setUser(nextUser);
-    setDashTab(nextUser?.isStaff ? "bookings" : "overview");
-  };
+  }, [initializeSession]);
 
   const handleLogout = async () => {
+    localStorage.removeItem(RECOVERY_FLAG);
+    recoveryMode.current = false;
     await supabase.auth.signOut();
     setUser(null);
+    setSession(null);
     setDashTab("overview");
     setView("landing");
   };
 
-  const handleUpdateUser = async (nextUser) => {
-    setUser(nextUser);
-    if (nextUser?.id) {
-      try {
-        await upsertProfile(nextUser.id, nextUser);
-      } catch {
-        throw new Error("Profile update failed");
-      }
+  const clearCheckoutCallback = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("checkout");
+    url.searchParams.delete("reference");
+    window.history.replaceState(null, "", url.pathname + url.search);
+  };
+
+  const checkPaymentConfirmation = async () => {
+    const { data: { session: freshSession } } = await supabase.auth.getSession();
+    if (!freshSession) throw new Error("Your session has expired. Sign in again.");
+    const current = await fetchProfile(freshSession.user.id, freshSession.user.email, freshSession.user.user_metadata);
+    const selection = selectedPaidPlan(getStoredPlanSelection());
+    // Without a saved expected plan, an old active subscription is not proof
+    // that the latest redirected Paystack transaction was successful.
+    if (isSelectedPlanActive(current, selection)) {
+      clearCheckoutCallback();
+      finishOwnerLogin(current);
+      return true;
     }
+    return false;
+  };
+
+  const handleUpdateUser = async (nextUser) => {
+    if (!nextUser?.id) return;
+    await upsertProfile(nextUser.id, nextUser);
+    setUser(nextUser);
   };
 
   return (
     <div className="nl-root">
       <style>{GLOBAL_CSS}</style>
 
-      {view === "login" && <LoginScreen go={setView} onLogin={handleLogin} />}
-      {view === "signup" && <SignupScreen go={setView} onLogin={handleLogin} />}
-      {view === "forgot" && <ForgotScreen go={setView} />}
+      {view === "authLoading" && <div className="auth-screen"><p role="status">Initializing your account...</p></div>}
+      {view === "authError" && <AuthErrorScreen go={go} error={authError} retry={() => supabase.auth.getSession().then(({ data }) => data.session ? initializeSession(data.session) : setView("login"))} />}
+      {view === "login" && <LoginScreen go={go} />}
+      {view === "signup" && <SignupScreen go={go} />}
+      {view === "verify" && <VerificationPendingScreen go={go} email={pendingEmail} />}
+      {view === "forgot" && <ForgotScreen go={go} />}
+      {view === "resetPassword" && <ResetPasswordScreen go={go} />}
+      {view === "businessSetup" && <BusinessSetupScreen go={go} session={session} onReady={finishOwnerLogin} />}
+      {view === "paymentPending" && <PaymentPendingScreen onCheck={checkPaymentConfirmation}
+        onDashboard={() => { clearCheckoutCallback(); window.localStorage.removeItem("nightline-plan-selection"); setDashTab("billing"); setView("dashboard"); }} />}
       {view === "landing" && (
         <NightlineLanding
           user={user}
-          onSignIn={() => setView("login")}
+          onSignIn={() => go("login")}
           onStartTrial={(selection) => {
             setLandingScrollY(window.scrollY);
             setRestoreScroll(true);
-            if (selection) {
-              window.localStorage.setItem("nightline-plan-selection", JSON.stringify(selection));
-            }
-            setView(selection?.mode === "paid" ? "checkout" : "signup");
+            if (selection) window.localStorage.setItem("nightline-plan-selection", JSON.stringify(selection));
+            go(user ? (selection?.mode === "paid" ? "checkout" : "dashboard") : "signup");
           }}
         />
       )}
-      {view === "checkout" && <CheckoutScreen go={setView} onLogin={handleLogin} />}
+      {view === "checkout" && <CheckoutScreen go={go} user={user} />}
       {view === "chatDemo" && (
         publicChatLoading ? (
-          <div className="widget-demo-stage">
-            <p className="widget-demo-caption">Loading assistant...</p>
-          </div>
-        ) : (
-          <ChatWidgetDemo user={publicChatProfile || user} />
-        )
+          <div className="widget-demo-stage"><p className="widget-demo-caption">Loading assistant...</p></div>
+        ) : <ChatWidgetDemo user={publicChatProfile || user} />
       )}
-      {view === "dashboard" && (
-        <DashboardShell go={(nextView) => (nextView === "login" ? handleLogout() : setView(nextView))} active={dashTab} setActive={setDashTab} isStaff={user?.isStaff}>
+      {view === "dashboard" && user && (
+        <DashboardShell go={(nextView) => (nextView === "login" ? handleLogout() : go(nextView))} active={dashTab} setActive={setDashTab} isStaff={user.isStaff}>
           <ActivePage user={user} onUpdateUser={handleUpdateUser} />
         </DashboardShell>
       )}
