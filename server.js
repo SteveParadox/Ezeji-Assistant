@@ -233,7 +233,7 @@ function settlementError(message, status = 503) {
 // migration has been deployed. Pending checkouts are durable before Paystack
 // receives the reference, including if Paystack responds too late.
 async function checkSettlementReady() {
-  const { data, error } = await supabase.rpc('paystack_settlement_ready');
+  const { data, error } = await supabase.rpc('production_billing_ready');
   if (error || data !== true) throw settlementError('Payment settlement migration is not available');
 }
 
@@ -244,8 +244,9 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
 
   await checkSettlementReady();
   const reference = newPaystackReference();
-  const { error: attemptError } = await supabase.from('payment_attempts').insert({
+  const { error: attemptError } = await supabase.from('checkout_attempts').insert({
     business_id: businessId,
+    user_id: businessId,
     provider: 'paystack',
     provider_reference: reference,
     plan,
@@ -254,6 +255,7 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
     currency: 'NGN',
     customer_email: email.trim().toLowerCase(),
     status: 'pending',
+    expires_at: new Date(Date.now() + 24 * 3600_000).toISOString(),
   });
   if (attemptError) throw attemptError;
 
@@ -284,7 +286,7 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
   }
 
   if (!initResponse.ok || initPayload?.status !== true) {
-    await supabase.from('payment_attempts').update({
+    await supabase.from('checkout_attempts').update({
       status: 'initialization_failed', updated_at: new Date().toISOString(),
     }).eq('provider', 'paystack').eq('provider_reference', reference).eq('status', 'pending');
     throw settlementError('Paystack rejected checkout initialization');
@@ -294,8 +296,8 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
       !isTrustedPaystackCheckoutUrl(initPayload.data?.authorization_url)) {
     throw settlementError('Paystack returned an invalid checkout reference or URL');
   }
-  const { error: markError } = await supabase.from('payment_attempts').update({
-    status: 'initialized', updated_at: new Date().toISOString(),
+  const { error: markError } = await supabase.from('checkout_attempts').update({
+    status: 'initialized', provider_initialized_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }).eq('provider', 'paystack').eq('provider_reference', reference).eq('status', 'pending');
   if (markError) throw markError;
   return res.json({ url: initPayload.data.authorization_url, reference });
@@ -303,8 +305,8 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
 
 async function loadPaymentAttempt(reference) {
   if (!PAYSTACK_REFERENCE_PATTERN.test(reference || '')) throw settlementError('Invalid payment reference', 400);
-  const { data, error } = await supabase.from('payment_attempts')
-    .select('business_id,provider,provider_reference,provider_transaction_id,plan,billing_period,expected_amount,currency,customer_email,status,applied_to_subscription')
+  const { data, error } = await supabase.from('checkout_attempts')
+    .select('business_id,provider,provider_reference,provider_transaction_id,plan,billing_period,expected_amount,currency,customer_email,status,expires_at,applied_to_subscription')
     .eq('provider', 'paystack').eq('provider_reference', reference).maybeSingle();
   if (error) throw error;
   if (!data) throw settlementError('Payment attempt not found; requires reconciliation');
@@ -330,14 +332,14 @@ async function recordSuccessfulPayment(reference, webhookCharge) {
     throw settlementError('Verified provider payment conflicts with checkout intent', 422);
   }
   // The signed notification must be about the very same verified charge.
-  if (webhookCharge?.amount !== verified.p_amount ||
-      String(webhookCharge?.currency || '').toUpperCase() !== verified.p_currency) {
+  if (webhookCharge && (webhookCharge.amount !== verified.p_amount ||
+      String(webhookCharge.currency || '').toUpperCase() !== verified.p_currency)) {
     throw settlementError('Webhook and Paystack verification disagree', 422);
   }
   const { data, error } = await supabase.rpc('settle_paystack_payment', verified);
   if (error) throw error;
   const outcome = Array.isArray(data) ? data[0] : data;
-  if (!outcome || !['settled', 'already_settled'].includes(outcome.outcome) ||
+  if (!outcome || !['settled', 'already_settled', 'review_required'].includes(outcome.outcome) ||
       outcome.settled_business_id !== attempt.business_id) {
     throw settlementError('Unexpected atomic payment settlement result');
   }
@@ -363,6 +365,7 @@ app.post('/webhooks/paystack', async (req, res) => {
       return res.status(422).json({ error: 'Charge event was not successful' });
     }
     const result = await recordSuccessfulPayment(event.data.reference, event.data);
+    if (result.outcome === 'review_required') return res.status(202).json({ received: true, outcome: 'review_required' });
     return res.json({ received: true, outcome: result.outcome });
   } catch (error) {
     console.error('Paystack settlement error:', error.message);
@@ -386,22 +389,42 @@ app.get('/verify-paystack/:reference', async (req, res) => {
     if (!PAYSTACK_REFERENCE_PATTERN.test(reference)) {
       return res.status(400).json({ error: 'Invalid reference' });
     }
-    const { data: attempt, error: attemptError } = await supabase.from('payment_attempts')
+    const { data: attempt, error: attemptError } = await supabase.from('checkout_attempts')
       .select('business_id,provider,provider_reference,provider_transaction_id,expected_amount,currency,customer_email,status')
       .eq('provider', 'paystack').eq('provider_reference', reference)
       .eq('business_id', auth.user.id).maybeSingle();
     if (attemptError) throw attemptError;
     if (!attempt) return res.status(404).json({ error: 'Payment reference not found' });
-    if (attempt.status !== 'settled') return res.json({ verified: false, status: 'pending' });
-
+    if (attempt.status === 'review_required' || attempt.status === 'expired') {
+      return res.json({ verified: false, status: attempt.status, requiresReview: true });
+    }
+    if (attempt.status === 'failed') return res.json({ verified: false, status: 'failed' });
+    // A missed webhook is recovered by consulting Paystack and using the
+    // exact same atomic settlement RPC as the webhook.
+    if (!process.env.PAYSTACK_SECRET_KEY) throw settlementError('Payment verification unavailable');
+    const response = await fetch('https://api.paystack.co/transaction/verify/' + encodeURIComponent(reference), {
+      headers: { Authorization: 'Bearer ' + process.env.PAYSTACK_SECRET_KEY },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw settlementError('Paystack verification unavailable');
+    const provider = await response.json();
+    if (provider.data?.reference !== reference) throw settlementError('Provider reference mismatch', 422);
+    if (['pending','ongoing'].includes(provider.data?.status)) {
+      return res.json({ verified: false, status: 'pending' });
+    }
+    if (provider.data?.status !== 'success') return res.json({ verified: false, status: 'failed' });
+    const payment = parseVerifiedPaystackTransaction(provider, reference);
+    if (!paymentMatchesAttempt(payment, attempt)) throw settlementError('Payment integrity mismatch', 422);
+    const { data: rows, error: rpcError } = await supabase.rpc('settle_paystack_payment', payment);
+    if (rpcError) throw rpcError;
+    const settled = Array.isArray(rows) ? rows[0] : rows;
+    if (!settled || settled.settled_business_id !== auth.user.id) throw settlementError('Settlement result mismatch');
+    if (settled.outcome === 'review_required') return res.json({ verified: false, status: 'review_required', requiresReview: true });
+    if (!['settled','already_settled'].includes(settled.outcome)) throw settlementError('Invalid settlement result');
     const { data: invoice, error: invoiceError } = await supabase.from('invoices')
-      .select('business_id,status').eq('provider', 'paystack')
-      .eq('provider_reference', reference).eq('business_id', auth.user.id).maybeSingle();
-    if (invoiceError) throw invoiceError;
-    if (!invoice) throw settlementError('Missing settled invoice; reconciliation required');
-    if (invoice.status !== 'paid') return res.json({ verified: false, status: invoice.status });
-    const verified = await fetchVerifiedPaystackPayment(reference);
-    if (!paymentMatchesAttempt(verified, attempt)) throw settlementError('Transaction integrity mismatch');
+      .select('business_id,status').eq('provider','paystack').eq('provider_reference',reference)
+      .eq('business_id',auth.user.id).maybeSingle();
+    if (invoiceError || invoice?.status !== 'paid') throw settlementError('Settled invoice missing or invalid');
     return res.json({ verified: true, status: 'paid' });
   } catch (error) {
     console.error('Paystack verification error:', error.message);
