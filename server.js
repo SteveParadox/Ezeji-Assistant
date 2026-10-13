@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
+import { attachStaffRoutes } from './server/staffRoutes.js';
 
 dotenv.config();
 
@@ -443,6 +444,8 @@ if (!process.env.VERCEL) {
     console.log(`Nightline payment server listening on port ${port}`);
   });
 }
+
+attachStaffRoutes(app,supabase);
 
 app.post('/integrations/whatsapp/test', async (req, res) => {
   const { phoneNumberId, accessToken } = req.body || {};
