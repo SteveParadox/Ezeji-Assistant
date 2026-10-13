@@ -127,7 +127,11 @@ async function checkUsageLimit(businessId) {
   if (result.error || !result.data) throw new Error('Business entitlement unavailable');
   const plan=result.data.plan;
   if (plan==='14-day trial' && (result.data.trial_active!==true || !result.data.trial_ends_at || Date.parse(result.data.trial_ends_at)<=Date.now())) return {allowed:false,reason:'trial-expired'};
-  if (plan!=='14-day trial' && result.data.payment_status!=='active') return {allowed:false,reason:'subscription-inactive'};
+  if (plan!=='14-day trial') {
+    const { data: allowed, error: entitlementError } = await supabase.rpc('has_current_paid_entitlement', {p_business_id:businessId});
+    if(entitlementError) throw entitlementError;
+    if(allowed !== true) return {allowed:false,reason:'subscription-expired'};
+  }
   const limit=PLAN_LIMITS[plan];
   if (limit===undefined) return {allowed:false,reason:'unknown-plan'};
   if (limit===Infinity) return {allowed:true,limit};
@@ -213,7 +217,14 @@ app.post('/create-checkout-session', async (req,res)=>{
     if(businessError||!business) return res.status(403).json({error:'Business account not found'});
     const {plan,billingPeriod}=req.body||{};
     if(!Object.hasOwn(PRICE_MAP_NGN_KOBO,plan)||!['monthly','yearly'].includes(billingPeriod)) return res.status(400).json({error:'Invalid plan or billing period'});
-    if(isSameActiveSubscription(business,plan,billingPeriod)) return res.status(409).json({error:'This subscription is already active.'});
+    const { data: activeSubscription, error: activeError } = await supabase.from('subscriptions')
+      .select('plan,billing_period,status,current_period_end').eq('business_id', business.id).maybeSingle();
+    if (activeError) throw activeError;
+    if (activeSubscription && ['active','cancellation_scheduled'].includes(activeSubscription.status)
+      && Date.parse(activeSubscription.current_period_end) > Date.now()
+      && activeSubscription.plan === plan && activeSubscription.billing_period === billingPeriod) {
+      return res.status(409).json({error:'This subscription is already active.'});
+    }
     return await handlePaystackCheckout({
       unitAmount:PRICE_MAP_NGN_KOBO[plan][billingPeriod],
       email:auth.user.email,plan,billingPeriod,
