@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { TextField } from "../shared";
 import { buildWeeklySchedule, validateWorkingHours, summarizeWorkingHours } from "../workingHours";
 
@@ -9,9 +9,12 @@ export function HoursLocationPage({ user, onUpdateUser }) {
   const [timezone, setTimezone] = useState(user?.timezone || "Africa/Lagos");
   const [saveState, setSaveState] = useState("idle");
   const [saveError, setSaveError] = useState("");
+  const editRevision = useRef(0);
+  const savingRef = useRef(false);
 
   const markEdited = () => {
-    setSaveState("idle");
+    editRevision.current += 1;
+    setSaveState(state => state === "saving" ? "saving" : "idle");
     setSaveError("");
   };
   const toggle = (i) => {
@@ -28,7 +31,7 @@ export function HoursLocationPage({ user, onUpdateUser }) {
   };
 
   const save = async () => {
-    if (saveState === "saving") return;
+    if (savingRef.current) return;
     setSaveError("");
     if (!address.trim() || !cityStateZip.trim()) {
       setSaveState("error");
@@ -48,15 +51,23 @@ export function HoursLocationPage({ user, onUpdateUser }) {
       setSaveError("Choose a valid IANA timezone, for example Africa/Lagos.");
       return;
     }
+    savingRef.current = true;
+    const revisionAtStart = editRevision.current;
     setSaveState("saving");
     try {
       if (!onUpdateUser) throw new Error("Business settings unavailable.");
       await onUpdateUser({ ...(user || {}), hoursJson: hours, hours: summarizeWorkingHours(hours, timezone),
         address: address.trim(), cityStateZip: cityStateZip.trim(), timezone });
-      setSaveState("saved");
+      setSaveState(editRevision.current === revisionAtStart ? "saved" : "idle");
     } catch {
-      setSaveState("error");
-      setSaveError("Could not save your hours and location. Your changes are still here.");
+      if (editRevision.current === revisionAtStart) {
+        setSaveState("error");
+        setSaveError("Could not save your hours and location. Your changes are still here.");
+      } else {
+        setSaveState("idle");
+      }
+    } finally {
+      savingRef.current = false;
     }
   };
 
