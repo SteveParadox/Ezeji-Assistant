@@ -4,7 +4,7 @@ import { buildBusinessProfileUpdate } from "./businessProfileFields";
 import { getPlanDetails, getTrialEndsAt } from "./billingLogic";
 import {
   LayoutDashboard, Building2, HelpCircle, ListChecks, Clock, Bot,
-  MessagesSquare, BarChart3, CreditCard, LogOut, Power, Plus, Trash2, Menu, X,
+  MessagesSquare, BarChart3, CreditCard, LogOut, Plus, Trash2, Menu, X,
   CheckCircle2, MessageCircle,
 } from "lucide-react";
 import { Logo, TextField, StatCard, timeAgo, downloadCsv, API_BASE_URL, STAFF_LIMITS, ANALYTICS_TIER, AI_PERSONALITY_PLANS, CONVERSATION_LIMITS, getStoredPlanSelection, upsertProfile } from "./shared";
@@ -108,8 +108,7 @@ export function DashboardShell({ go, active, setActive, children, isStaff = fals
   );
 }
 
-export function OverviewPage({ user, onUpdateUser }) {
-  const [aiOn, setAiOn] = useState(user?.assistantLive !== false);
+export function OverviewPage({ user }) {
   const [recent, setRecent] = useState([]);
   const [stats, setStats] = useState({ today: 0, resolvedPct: 0, escalated: 0, yesterday: 0, total: 0 });
   const [loading, setLoading] = useState(true);
@@ -183,17 +182,9 @@ export function OverviewPage({ user, onUpdateUser }) {
           <h1 className="page-title">Overview</h1>
           <p className="page-sub">{user?.business || "Your business"}</p>
         </div>
-        <button
-          className={`ai-toggle-pill ${aiOn ? "ai-toggle-pill--on" : ""}`}
-          onClick={() => {
-            const next = !aiOn;
-            setAiOn(next);
-            onUpdateUser?.({ ...(user || {}), assistantLive: next });
-          }}
-        >
-          <Power className="ai-toggle-icon" />
-          {aiOn ? "Assistant is live" : "Assistant is paused"}
-        </button>
+        <span className="ai-toggle-pill" role="status">
+          <Bot className="ai-toggle-icon" /> Assistant preview
+        </span>
       </div>
 
       {!loading && limitReached && (
@@ -225,9 +216,9 @@ export function OverviewPage({ user, onUpdateUser }) {
       </div>
 
       <div className="panel">
-        <h2 className="panel-title">Live AI assistant</h2>
-        <p className="panel-help">Try a message like "What are your hours?" or "Book Saturday 9am".</p>
-        <ChatWidgetDemo user={user} enabled={aiOn} previewOnly />
+        <h2 className="panel-title">Test your AI assistant</h2>
+        <p className="panel-help">This private preview reads saved business data, but cannot book appointments or send customer messages. Successful AI preview requests consume plan usage.</p>
+        <ChatWidgetDemo user={user} previewOnly />
       </div>
 
       <div className="panel">
