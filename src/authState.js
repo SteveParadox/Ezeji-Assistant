@@ -52,12 +52,17 @@ export function hasAuthCallback(callback) {
   return !!(callback.type || callback.code || callback.tokenHash || callback.accessToken || callback.error);
 }
 
+export function isSelectedPlanActive(profile, selection) {
+  const chosen = selectedPaidPlan(selection);
+  return !!chosen && profile?.paymentStatus === "active" &&
+    profile.plan === chosen.plan && profile.billingPeriod === chosen.billingPeriod;
+}
+
 export function destinationForBusiness(profile, selection) {
   if (!profile || (!profile.isStaff && !profile.business)) return "businessSetup";
   if (profile.isStaff) return "dashboard";
   const paid = selectedPaidPlan(selection);
-  return paid && !(profile.paymentStatus === "active" && profile.plan === paid.plan)
-    ? "checkout" : "dashboard";
+  return paid && !isSelectedPlanActive(profile, paid) ? "checkout" : "dashboard";
 }
 
 
