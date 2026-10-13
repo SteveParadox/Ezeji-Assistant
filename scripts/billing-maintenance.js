@@ -25,7 +25,9 @@ try {
   if (error) throw error;
   const {data: released, error: releaseError} = await db.rpc("expire_ai_reservations");
   if (releaseError) throw releaseError;
-  console.info(JSON.stringify({event:"billing_maintenance",...result,expiredSubscriptions:expired,expiredReservations:released}));
+  const {data:prunedRateBuckets,error:pruneError}=await db.rpc("prune_ai_request_rate_buckets");
+  if(pruneError)throw pruneError;
+  console.info(JSON.stringify({event:"billing_maintenance",...result,expiredSubscriptions:expired,expiredReservations:released,prunedRateBuckets}));
 } catch (error) {
   console.error(JSON.stringify({ event: "billing_maintenance_failed", reason: error.message }));
   process.exitCode = 1;
