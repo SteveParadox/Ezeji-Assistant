@@ -32,9 +32,9 @@ function useReducedMotion() {
 
 const HERO_SCRIPT = [
   { from: "customer", text: "hii do you have any openings sat morning for a cut n color" },
-  { from: "ai", text: "We do - Saturday has 9:00 AM and 11:30 AM open. A cut and color runs $145 and takes about 2.5 hours. Want me to hold 9:00 for you?" },
+  { from: "ai", text: "A cut and color is listed at $145 in this example. Would you like me to send a Saturday 9:00 AM booking request?" },
   { from: "customer", text: "yes please! also are you open sundays" },
-  { from: "ai", text: "Booked - Saturday 9:00 AM. We're closed Sundays, back open Monday at 9. Anything else?" },
+  { from: "ai", text: "Your request is in. The business will confirm whether Saturday 9:00 AM is available. They are closed Sundays." },
 ];
 
 function HeroChat() {
@@ -294,20 +294,19 @@ function Pricing({ onStartTrial }) {
   // and keeping the numbers fair and round (in the spirit of ChatGPT Plus's
   // pricing) matters more than deriving them from a dollar figure.
   // Yearly = 10x monthly, i.e. 2 months free.
+  // Pricing amounts are sourced from the same shared catalog as checkout.
   const plans = [
-    { name: "Free trial", monthlyNgn: 0, free: true, features: ["100 conversations", "1 business profile", "FAQs, services & hours", "Customer chat link"], cta: "Start 14-day trial", highlighted: false },
-    { name: "Starter", monthlyNgn: 15000, features: ["500 conversations/mo", "1 business profile", "Booking request capture", "Basic conversation analytics"], cta: "Pay Starter", highlighted: false },
-    { name: "Professional", monthlyNgn: 35000, features: ["2,500 conversations/mo", "3 staff accounts", "Advanced analytics", "Custom AI personality", "Booking management & status tracking", "Export conversations & bookings (CSV)"], cta: "Pay Professional", highlighted: true },
-    { name: "Business", monthlyNgn: 75000, features: ["Unlimited conversations", "Unlimited staff accounts", "Advanced analytics", "Custom AI personality", "Booking management & status tracking", "Export conversations & bookings (CSV)"], cta: "Pay Business", highlighted: false },
+    { name: "Free trial", free: true, features: ["100 conversations", "1 business profile", "FAQs, services & hours", "Customer chat link"], cta: "Start 14-day trial", highlighted: false },
+    { name: "Starter", free: false, features: ["500 conversations/mo", "1 business profile", "Booking request capture", "Basic conversation analytics"], cta: "Choose Starter", highlighted: false },
+    { name: "Professional", free: false, features: ["2,500 conversations/mo", "3 staff accounts", "Advanced analytics", "Custom AI personality", "Booking management & status tracking", "Export conversations & bookings (CSV)"], cta: "Choose Professional", highlighted: true },
+    { name: "Business", free: false, features: ["Unlimited conversations", "Unlimited staff accounts", "Advanced analytics", "Custom AI personality", "Booking management & status tracking", "Export conversations & bookings (CSV)"], cta: "Choose Business", highlighted: false },
   ];
-  const formatNgn = (amount) => `NGN ${amount.toLocaleString()}`;
-  const getMonthlyNgn = (monthlyNgn) => monthlyNgn;
-  const getYearlyNgn = (monthlyNgn) => monthlyNgn * 10;
+  const formatNgn = (amount) => `NGN ${amount.toLocaleString("en-NG", { maximumFractionDigits: 2 })}`;
   return (
     <section id="pricing" className="container pricing-section">
       <div className="section-heading">
         <h2 className="display section-title">Plans that grow with your front desk.</h2>
-        <p className="pricing-subtitle">Every plan starts with a 14-day free trial. Upgrade, downgrade, or cancel any time. Prices in Nigerian Naira, charged securely via Paystack.</p>
+        <p className="pricing-subtitle">Start with a 14-day free trial or choose a paid plan. Prices are in Nigerian Naira. Paystack purchases are one-time payments and do not renew automatically.</p>
       </div>
       <div className="pricing-toolbar">
         <div className="billing-toggle">
@@ -320,9 +319,8 @@ function Pricing({ onStartTrial }) {
       </div>
       <div className="pricing-grid">
         {plans.map((p) => {
-          const displayPrice = p.free
-            ? "NGN 0"
-            : formatNgn(yearly ? getYearlyNgn(p.monthlyNgn) : getMonthlyNgn(p.monthlyNgn));
+          const details = getPlanDetails(p.name, "NGN", yearly ? "yearly" : "monthly");
+          const displayPrice = details.displayPrice;
           const period = p.free ? "for 14 days" : yearly ? "/year" : "/month";
           return (
             <div key={p.name} className={`plan-card ${p.highlighted ? "plan-card--highlighted" : ""}`}>
@@ -332,7 +330,7 @@ function Pricing({ onStartTrial }) {
                 <span className="plan-price display">{displayPrice}</span>
                 <span className="plan-period">{period}</span>
               </p>
-              {yearly && !p.free && <p className="plan-yearly-note">{formatNgn(getMonthlyNgn(p.monthlyNgn))} per month equivalent</p>}
+              {yearly && !p.free && <p className="plan-yearly-note">{formatNgn(details.amountDue / 12)} per month equivalent, paid yearly</p>}
               <ul className="plan-features">
                 {p.features.map((f) => (
                   <li key={f} className="plan-feature-item"><Check className="plan-check" />{f}</li>
@@ -357,10 +355,9 @@ function Testimonial() {
     <section className="testimonial-section">
       <div className="testimonial-inner">
         <p className="display testimonial-quote">
-          "We used to lose Saturday bookings to voicemail. Now Ezeji Assistant
-          holds the slot before the customer even hangs up on the idea."
+          "Customers can request appointments through the assistant. Your team reviews availability and confirms the booking."
         </p>
-        <p className="testimonial-author">Maya R. - Owner, Bloom & Co. Salon</p>
+        <p className="testimonial-author">Illustrative booking workflow</p>
       </div>
     </section>
   );
@@ -418,7 +415,7 @@ function ShareLinkCard({ user }) {
 
         <p className="share-body">
           {user?.id
-            ? "This is your real, working customer link. When a client opens it, they see your current hours, services, and prices, then chat directly with your assistant. No client account, download, or setup is required."
+            ? "This is your customer chat link. Verify your business details and test the assistant before sharing it. The link does not guarantee that the backend or subscription is operational."
             : "Sign in to generate a link for your business. Share it anywhere clients already look for you, and they can get answers without creating an account or downloading an app."}
         </p>
 
@@ -439,7 +436,7 @@ function ShareLinkCard({ user }) {
 
         <div className="share-actions">
           <div className="share-url-display" title={shareUrl}>
-            <span className="share-url-label">Live link</span>
+            <span className="share-url-label">Customer link</span>
             <span className="share-url-value">{shareUrl || "Sign in to generate your link"}</span>
           </div>
           <button className="share-copy-button" onClick={copyLink} aria-label={copied ? "Link copied" : "Copy customer link"} title={copied ? "Link copied" : "Copy customer link"}>
