@@ -68,7 +68,7 @@ Tests added/updated:
 - Preview tenant isolation, authentication and no customer-record insertion.
 - Preview request payload includes tenant identity rather than a null business ID.
 
-**Do not interpret tests being committed as evidence they passed.** The authoring environment cannot clone/install the public repository directly due DNS restrictions. Check the GitHub Actions workflow for `npm ci`, `node --check`, `npm run lint`, `npm test`, `npm run build`. Real Supabase, Groq, Paystack and Meta tests were not run here.
+**Do not interpret tests being committed as evidence they passed.** GitHub Actions PR run [38425868933](https://github.com/SteveParadox/Ezeji-Assistant/actions/runs/38425868933) is marked **failure**, but the job reports zero executed steps, and decoded logs were unavailable through the connection. This is an infrastructure/CI-start blocker, not evidence of test failures or successful tests. The authoring environment cannot clone/install the public repository directly due DNS restrictions. Check the GitHub Actions workflow for `npm ci`, `node --check`, `npm run lint`, `npm test`, `npm run build`. Real Supabase, Groq, Paystack and Meta tests were not run here.
 
 ## 8. Deployment requirements and known risks
 
@@ -86,5 +86,5 @@ Tests added/updated:
 This is a partial working branch, **not a production-readiness sign-off**. No reliable score out of 100 or merge-ready verdict can be justified without test and runtime evidence.
 
 Branch: `codex/ezeji-complete-frontend-overhaul`  
-Pull request: see repository PR opened for this branch.  
+Pull request: https://github.com/SteveParadox/Ezeji-Assistant/pull/6 (draft).\nLatest checked CI: failure before any reported job steps; no code-validation result.  
 Merge recommendation: **Do not merge until checks pass, regressions are addressed and outstanding master-prompt requirements are implemented or explicitly scoped out.**
