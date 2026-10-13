@@ -56,6 +56,14 @@ export default function NightlineApp() {
     const selectedPlanActive = isSelectedPlanActive(profile, selection);
     if (selectedPlanActive) {
       window.localStorage.removeItem("nightline-plan-selection");
+      if (checkoutReturned) {
+        // Otherwise refreshing a settled checkout would re-enter paymentPending
+        // after the selected plan is cleared from local storage.
+        const url = new URL(window.location.href);
+        url.searchParams.delete("checkout");
+        url.searchParams.delete("reference");
+        window.history.replaceState(null, "", url.pathname + url.search);
+      }
     }
     if (!profile.isStaff && checkoutReturned && !selectedPlanActive) {
       setView("paymentPending"); // Active on a different plan is NOT this payment.
