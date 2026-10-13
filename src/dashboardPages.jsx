@@ -735,20 +735,9 @@ export function BookingsPage({ user }) {
     setBookings((b) => b.map((row) => (row.id === id ? { ...row, status: data.status } : row)));
   };
 
-  const deleteBooking = async (id) => {
-    if (!window.confirm("Delete this booking permanently?")) return;
-    setError("");
-    const { error: deleteError } = await supabase
-      .from("bookings")
-      .delete()
-      .eq("id", id)
-      .eq("business_id", user.id);
-    if (deleteError) {
-      console.error("Booking delete error:", deleteError);
-      setError("Couldn't delete that booking. Please try again.");
-      return;
-    }
-    setBookings((current) => current.filter((row) => row.id !== id));
+  const cancelBooking = async (id) => {
+    if (!window.confirm("Cancel this appointment? The record will be preserved for auditing.")) return;
+    await updateStatus(id,"canceled");
   };
 
   const exportCsv = () => {
@@ -793,10 +782,12 @@ export function BookingsPage({ user }) {
                     <span className={`badge ${b.status === "confirmed" ? "badge--green" : "badge--amber"}`}>{b.status}</span>
                   </td>
                   <td className="row-actions">
-                    {b.status !== "confirmed" && (
+                    {b.status === "pending" && (
                       <button className="btn btn--outline" onClick={() => updateStatus(b.id, "confirmed")}>Confirm</button>
                     )}
-                    <button className="icon-btn" onClick={() => deleteBooking(b.id)} aria-label="Delete booking" title="Delete booking"><Trash2 className="icon-btn-icon" /></button>
+                    {["pending","confirmed"].includes(b.status) && (
+                      <button className="icon-btn" onClick={() => cancelBooking(b.id)} aria-label="Cancel booking" title="Cancel booking"><Trash2 className="icon-btn-icon" /></button>
+                    )}
                   </td>
                 </tr>
               ))}
