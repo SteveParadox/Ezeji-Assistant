@@ -70,6 +70,12 @@ Tests added or updated:
 8. Full booking/rescheduling, conversation inbox and multi-business staff testing.
 9. Performance, bundle-size, visual screenshot, and deployment checks.
 
+## Additional final-pass corrections
+
+- Returning from Paystack now triggers an **automatic** call to the verification/reconciliation endpoint from `PaymentPendingScreen`, while an in-flight guard prevents overlapping refresh attempts.
+- The frontend's stored pricing selection now always uses `NGN`, including legacy selections that used a `USD` display default. This does not change server-authoritative checkout amounts.
+- The landing hero no longer implies the assistant is operational just because a static scripted demonstration is playing.
+
 ## Release gate
 
 Do not mark the PR ready, or merge into `main`, until the complete checks run successfully with evidence, high-severity regressions are addressed, production migrations are verified against a safe environment, and the scope of unfinished master-prompt requirements is explicitly decided.
