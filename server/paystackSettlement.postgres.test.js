@@ -46,8 +46,15 @@ test("atomic Paystack settlement against isolated real PostgreSQL", options, asy
   // The entire database is disposable, and its name is validated above.
   runSql(`
     create schema if not exists auth;
+    do $roles$ begin
+      if not exists(select 1 from pg_roles where rolname='anon') then create role anon noinherit; end if;
+      if not exists(select 1 from pg_roles where rolname='authenticated') then create role authenticated noinherit; end if;
+      if not exists(select 1 from pg_roles where rolname='service_role') then create role service_role noinherit; end if;
+    end $roles$;
     create or replace function auth.role() returns text language sql stable
       as 'select current_setting(''request.jwt.claim.role'',true)';
+    create or replace function auth.uid() returns uuid language sql stable
+      as 'select null::uuid';
     create table if not exists public.profiles (
       id uuid primary key,
       plan text not null default '14-day trial',
