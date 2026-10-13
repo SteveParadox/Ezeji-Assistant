@@ -49,7 +49,8 @@ export async function startAuthenticatedCheckout(session, selection) {
     body: JSON.stringify(chosen),
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload.url) throw new Error(payload.error || "Checkout could not be created.");
+  if (!response.ok || !payload.url || !payload.reference) throw new Error(payload.error || "Checkout could not be created.");
+  window.localStorage.setItem("ezeji-last-checkout-ref", payload.reference);
   return payload.url;
 }
 
