@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { attachStaffRoutes } from './server/staffRoutes.js';
+import { ensureOwnerBusiness } from './server/businessProvisioning.js';
 import { attachWhatsAppRoutes, decryptToken } from './server/whatsappConnections.js';
 
 dotenv.config();
@@ -177,29 +178,8 @@ const PRICE_MAP_NGN_KOBO = {
   Business: { monthly: 7500000, yearly: 75000000 },       // NGN 75,000 / NGN 750,000
 };
 
-// Canonical owner provisioning. Only an authenticated, verified user can create
-// the row whose primary key is their auth.uid(). Never accept owner ID, role,
-// plan, payment status, or trial duration from the browser or user metadata.
-function validatedBusinessFields(source) {
-  if (!source || typeof source !== 'object' || Array.isArray(source)) return null;
-  const clean = (key, max) => {
-    const value = source[key];
-    return typeof value === 'string' ? value.trim().slice(0, max) : '';
-  };
-  const business = clean('business', 160);
-  if (!business) return null;
-  return {
-    name: clean('name', 120) || business,
-    business: business,
-    business_type: clean('businessType', 80) || 'Other',
-    custom_business_type: clean('customBusinessType', 120),
-    service_name: clean('serviceName', 160),
-    price: clean('price', 100),
-    hours: clean('hours', 160),
-    description: clean('description', 2000),
-  };
-}
-
+// The service-role database client is server-only. The bearer token is
+// verified on every request, and the owner ID is always derived from it.
 app.post('/business/profile/ensure', async (req, res) => {
   try {
     if (!supabase) return res.status(503).json({ error: 'Database unavailable' });
@@ -208,46 +188,12 @@ app.post('/business/profile/ensure', async (req, res) => {
     const { data: auth, error: authError } = await supabase.auth.getUser(bearer[1]);
     if (authError || !auth?.user) return res.status(401).json({ error: 'Invalid session' });
     if (!auth.user.email_confirmed_at) return res.status(403).json({ error: 'Verify your email before onboarding.' });
-
-    const ownerId = auth.user.id;
-    const { data: existing, error: lookupError } = await supabase
-      .from('profiles').select('id,business,name').eq('id', ownerId).maybeSingle();
-    if (lookupError) throw lookupError; // Failure is not evidence that a row is missing.
-    if (existing?.business?.trim()) return res.json({ businessId: ownerId, created: false });
-
-    const fields = validatedBusinessFields(req.body?.fields) ||
-      validatedBusinessFields(auth.user.user_metadata?.business_registration);
-    if (!fields) return res.status(422).json({ error: 'Please provide your business name to complete onboarding.' });
-
-    if (existing) {
-      // Recover incomplete rows, without resetting plans, payment data or settings.
-      const patch = { business: fields.business };
-      if (!existing.name) patch.name = fields.name;
-      const { error } = await supabase.from('profiles').update(patch).eq('id', ownerId);
-      if (error) throw error;
-      return res.json({ businessId: ownerId, created: false, recovered: true });
-    }
-
-    const profile = {
-      id: ownerId,
-      ...fields,
-      plan: '14-day trial',
-      payment_status: 'trial',
-      trial_active: true,
-      trial_ends_at: new Date(Date.now() + 14 * 86400000).toISOString(),
-      billing_period: 'monthly',
-      currency: 'NGN',
-    };
-    // The profiles primary key prevents duplicate records across processes/tabs.
-    const { error: insertError } = await supabase
-      .from('profiles').upsert(profile, { onConflict: 'id', ignoreDuplicates: true });
-    if (insertError) throw insertError;
-    const { data: resolved, error: readError } = await supabase
-      .from('profiles').select('id,business').eq('id', ownerId).maybeSingle();
-    if (readError) throw readError;
-    if (!resolved?.business) return res.status(503).json({ error: 'Business setup is incomplete. Please retry.' });
-    return res.json({ businessId: ownerId, created: true });
+    const result = await ensureOwnerBusiness(
+      supabase, auth.user.id, req.body?.fields, auth.user.user_metadata?.business_registration
+    );
+    return res.json(result);
   } catch (error) {
+    if (error.status === 422) return res.status(422).json({ error: error.message });
     console.error('Business onboarding error:', error.message);
     return res.status(503).json({ error: 'Business setup is temporarily unavailable. Please retry.' });
   }
