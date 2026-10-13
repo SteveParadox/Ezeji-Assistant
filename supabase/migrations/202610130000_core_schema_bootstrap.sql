@@ -45,6 +45,39 @@ create table if not exists public.bookings(
   status text not null default 'pending',
   created_at timestamptz not null default now()
 );
+create table if not exists public.invoices(
+ id uuid primary key default gen_random_uuid(),
+ business_id uuid not null references public.profiles(id) on delete restrict,
+ provider text not null check (provider in ('stripe','paystack','trial')),
+ provider_reference text not null,
+ amount bigint not null default 0,
+ currency text not null default 'USD',
+ plan text not null,
+ billing_period text not null check (billing_period in ('monthly','yearly')),
+ status text not null default 'paid' check (status in ('trial','paid','failed','refunded')),
+ customer_email text,
+ created_at timestamptz not null default now(),
+ unique(provider,provider_reference)
+);
+create table if not exists public.payment_requests(
+ id uuid primary key default gen_random_uuid(),
+ customer_email text not null,
+ customer_name text not null,
+ business_name text not null,
+ plan text not null,
+ billing_period text not null check (billing_period in ('monthly','yearly')),
+ amount bigint not null, currency text not null default 'NGN',
+ transfer_reference text, status text not null default 'pending'
+  check(status in('pending','approved','rejected')),
+ created_at timestamptz not null default now()
+);
+create table if not exists public.staff_members(
+ id uuid primary key default gen_random_uuid(),
+ business_id uuid not null references public.profiles(id) on delete cascade,
+ email text not null, invited_at timestamptz not null default now()
+);
+create unique index if not exists staff_members_business_email_unique
+ on public.staff_members(business_id,lower(email));
 create table if not exists public.channel_connections(
   id uuid primary key default gen_random_uuid(),
   business_id uuid not null references public.profiles(id) on delete cascade,
@@ -79,6 +112,9 @@ alter table public.faqs enable row level security;
 alter table public.bookings enable row level security;
 alter table public.conversations enable row level security;
 alter table public.channel_connections enable row level security;
+alter table public.invoices enable row level security;
+alter table public.payment_requests enable row level security;
+alter table public.staff_members enable row level security;
 
 drop policy if exists "Ezeji owner profile read" on public.profiles;
 create policy "Ezeji owner profile read" on public.profiles for select to authenticated using (id=auth.uid());
@@ -100,5 +136,8 @@ using (business_id=auth.uid()) with check(business_id=auth.uid());
 -- Previously deployed permissive legacy policies must be audited and revoked
 -- before relying on these owner-only policies in production.
 revoke all on public.channel_connections from anon,authenticated;
+revoke all on public.staff_members from anon,authenticated;
+drop policy if exists "Ezeji invoices owner" on public.invoices;
+create policy "Ezeji invoices owner" on public.invoices for select to authenticated using(business_id=auth.uid());
 revoke insert,update,delete on public.conversations from anon,authenticated;
 commit;
