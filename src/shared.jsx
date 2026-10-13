@@ -184,17 +184,27 @@ export function AuthShell({ children, footer }) {
 
 
 export function getStoredPlanSelection() {
-  if (typeof window === "undefined") return { plan: "14-day trial", mode: "trial", billingPeriod: "monthly", currency: "USD" };
+  const trial = { plan: "14-day trial", mode: "trial", billingPeriod: "monthly", currency: "NGN" };
+  if (typeof window === "undefined") return trial;
   try {
     const saved = window.localStorage.getItem("nightline-plan-selection");
-    if (saved) return { billingPeriod: "monthly", currency: "USD", ...JSON.parse(saved) };
+    if (saved) {
+      const selection = JSON.parse(saved);
+      return selection && typeof selection === "object" && !Array.isArray(selection)
+        ? { ...trial, ...selection, currency: "NGN" }
+        : trial;
+    }
     const legacy = window.localStorage.getItem("nightline-trial-plan");
-    return legacy ? { plan: legacy, mode: legacy === "14-day trial" ? "trial" : "paid", billingPeriod: "monthly", currency: "USD" } : { plan: "14-day trial", mode: "trial", billingPeriod: "monthly", currency: "USD" };
+    return legacy ? {
+      plan: legacy,
+      mode: legacy === "14-day trial" ? "trial" : "paid",
+      billingPeriod: "monthly",
+      currency: "NGN",
+    } : trial;
   } catch {
-    return { plan: "14-day trial", mode: "trial", billingPeriod: "monthly", currency: "USD" };
+    return trial;
   }
 }
-
 
 export const STAFF_LIMITS = {
   '14-day trial': 1,
