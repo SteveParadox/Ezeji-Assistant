@@ -68,28 +68,18 @@ export function LoginScreen({ go }) {
 }
 
 export function SignupScreen({ go }) {
-  const [form, setForm] = useState(() => {
-    const selection = getStoredPlanSelection();
-    return {
-      name: "",
-      business: "",
-      businessType: "Restaurant",
-      customBusinessType: "",
-      email: "",
-      password: "",
-      serviceName: "",
-      price: "",
-      hours: "",
-      description: "",
-      selectedPlan: selection.plan || "14-day trial",
-      selectedMode: selection.mode || "trial",
-      selectedBillingPeriod: selection.billingPeriod || "monthly",
-      selectedCurrency: selection.currency || "USD",
-    };
-  });
+  const [form, setForm] = useState(() => ({
+    name: "",
+    business: "",
+    businessType: "Other",
+    email: "",
+    password: "",
+  }));
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const selection = getStoredPlanSelection();
+  const paidPlan = selectedPaidPlan(selection);
+  const set = (key) => (event) => setForm((previous) => ({ ...previous, [key]: event.target.value }));
 
   const handleSubmit = async () => {
     if (isSubmitting) return;
@@ -97,67 +87,36 @@ export function SignupScreen({ go }) {
     setIsSubmitting(true);
     try {
       const result = await registerBusiness(form);
-      if (!result.session) {
-        go("verify", { email: result.email });
-        return;
-      }
-      // With confirmation disabled Supabase signs in immediately.
-      // The app's auth-state manager provisions the owner account.
-    } catch (err) {
-      setError(err.message || "Registration failed. Please try again.");
+      if (!result.session) go("verify", { email: result.email });
+      // Session-based routing and provisioning remain in NightlineApp.
+    } catch (submitError) {
+      setError(submitError.message || "Registration failed. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <AuthShell
-      footer={
-        <>
-          Already have an account?{" "}
-          <button className="link-btn" onClick={() => go("login")}>Log in</button>
-        </>
-      }
-    >
+    <AuthShell footer={<>Already have an account?{" "}
+      <button type="button" className="link-btn" onClick={() => go("login")}>Log in</button>
+    </>}>
       <h1 className="auth-title">Create your account</h1>
-      <p className="auth-sub">Start your 14-day free trial. No card required.</p>
+      <p className="auth-sub">
+        {paidPlan
+          ? `Create your account to continue with ${paidPlan.plan} (${paidPlan.billingPeriod}). Payment happens securely after verification.`
+          : "Start your 14-day trial. No card required."}
+        {" "}You'll add services, hours and assistant details after registration.
+      </p>
       <div className="auth-form">
-        <TextField label="Your name" value={form.name} onChange={set("name")} placeholder="Maya Reyes" />
-        <TextField label="Business name" icon={Building2} value={form.business} onChange={set("business")} placeholder="Bloom & Co. Salon" />
-        <label className="field">
-          <span className="field-label">Business type</span>
-          <select className="field-input field-select" value={form.businessType} onChange={set("businessType")}>
-            {[
-              "Restaurant",
-              "Salon & Beauty",
-              "Hotel",
-              "Clinic",
-              "Laundry",
-              "Gym",
-              "Real Estate",
-              "Other",
-            ].map((option) => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-          </select>
-        </label>
-        {form.businessType === "Other" && (
-          <TextField label="Custom business type" value={form.customBusinessType} onChange={set("customBusinessType")} placeholder="Wedding planner, moving company, tutoring, etc." />
-        )}
-        <TextField label="Email" type="email" icon={Mail} value={form.email} onChange={set("email")} placeholder="you@business.com" />
-        <TextField label="Service name" value={form.serviceName} onChange={set("serviceName")} placeholder="Services your business offers" />
-        <TextField label="Price" value={form.price} onChange={set("price")} placeholder="$180" />
-        <TextField label="Hours" value={form.hours} onChange={set("hours")} placeholder="Mon-Sat 9:00 AM - 6:00 PM" />
-        <label className="field">
-          <span className="field-label">Describe your work</span>
-          <textarea className="field-input field-textarea" rows={3} value={form.description} onChange={set("description")} placeholder="Tell the assistant about your services, style, or specialties like dreadlocks, loc maintenance, twists, and consultations." />
-        </label>
-        <TextField label="Password" type="password" icon={Lock} value={form.password} onChange={set("password")} placeholder="********" />
-        {error && <p className="auth-error">{error}</p>}
-        <button className="btn btn--amber btn--full btn--lg" onClick={handleSubmit} disabled={isSubmitting}>
-          {isSubmitting ? "Creating account..." : "Sign Up"}
+        <TextField label="Full name" value={form.name} onChange={set("name")} placeholder="Your name" />
+        <TextField label="Business name" icon={Building2} value={form.business} onChange={set("business")} placeholder="Your business" />
+        <TextField label="Email address" type="email" icon={Mail} value={form.email} onChange={set("email")} placeholder="you@business.com" />
+        <TextField label="Password (at least 8 characters)" type="password" icon={Lock} value={form.password} onChange={set("password")} />
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <button type="button" className="btn btn--amber btn--full btn--lg" onClick={handleSubmit} disabled={isSubmitting}>
+          {isSubmitting ? "Creating account..." : "Create account"}
         </button>
-        <button className="link-btn" onClick={() => go("landing")}>Back to landing</button>
+        <button type="button" className="link-btn" onClick={() => go("landing")}>Back to landing</button>
       </div>
     </AuthShell>
   );
