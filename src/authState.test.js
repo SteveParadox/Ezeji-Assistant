@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   selectedPaidPlan, signupDetails, getRegistrationDetails, readAuthCallback,
-  hasAuthCallback, destinationForBusiness, rememberRecovery, readRecovery,
+  hasAuthCallback, destinationForBusiness, isSelectedPlanActive, rememberRecovery, readRecovery,
 } from "./authState.js";
 
 test("paid-plan choices must come from the server-supported plan allowlist", () => {
@@ -29,7 +29,7 @@ test("missing registration details require a recovery form, not a synthetic busi
 test("verified owners resume paid checkout without fake subscription activation", () => {
   const sel = { plan: "Starter", billingPeriod: "monthly" };
   assert.equal(destinationForBusiness({ business: "Cafe", plan: "14-day trial", paymentStatus: "trial" }, sel), "checkout");
-  assert.equal(destinationForBusiness({ business: "Cafe", plan: "Starter", paymentStatus: "active" }, sel), "dashboard");
+  assert.equal(destinationForBusiness({ business: "Cafe", plan: "Starter", billingPeriod: "monthly", paymentStatus: "active" }, sel), "dashboard");
   assert.equal(destinationForBusiness({ isStaff: true }, sel), "dashboard");
 });
 
@@ -61,4 +61,22 @@ test("recovery restart marker is user-bound, time-limited, and contains no token
   assert.deepEqual(readRecovery(storage, 10001), { userId: "owner-1", expiresAt: 1810000 });
   assert.equal(readRecovery(storage, 1810000), null);
   assert.equal(JSON.stringify([...map.values()]).includes("SECRET"), false);
+});
+
+
+test("prior active subscription cannot satisfy an upgraded checkout", () => {
+  const selected = { plan: "Business", billingPeriod: "yearly" };
+  assert.equal(isSelectedPlanActive({
+    plan: "Starter", billingPeriod: "monthly", paymentStatus: "active",
+  }, selected), false);
+  assert.equal(isSelectedPlanActive({
+    plan: "Business", billingPeriod: "monthly", paymentStatus: "active",
+  }, selected), false);
+  assert.equal(isSelectedPlanActive({
+    plan: "Business", billingPeriod: "yearly", paymentStatus: "active",
+  }, selected), true);
+  assert.equal(isSelectedPlanActive({
+    plan: "Business", billingPeriod: "yearly", paymentStatus: "pending",
+  }, selected), false);
+  assert.equal(isSelectedPlanActive({ plan: "Business", paymentStatus: "active" }, null), false);
 });
