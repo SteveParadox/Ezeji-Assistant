@@ -205,7 +205,10 @@ export default function NightlineApp() {
           localStorage.removeItem(RECOVERY_FLAG);
           setSession(null);
           setUser(null);
-          setView((current) => current === "resetPassword" ? current : "login");
+          // Expiring/signing out of an unrelated owner session must not eject
+          // a public customer from the shared business chat link.
+          setView((current) => getInitialViewFromUrl() === "chatDemo" ? "chatDemo" :
+            current === "resetPassword" ? current : "login");
           return;
         }
         if (["INITIAL_SESSION", "SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event) && nextSession) {
