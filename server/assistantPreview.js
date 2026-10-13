@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import { buildAssistantSystemPrompt } from "./assistantPrompt.js";
 
 // Owner-only preview: real saved configuration, no customer conversation writes.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i;
@@ -51,16 +52,7 @@ export function attachAssistantPreviewRoute(app, supabase, generateAssistantRepl
         throw reservationError;
       }
       reservedId = reservation;
-      const systemPrompt = [
-        `You are ${p.assistant_name || "the assistant"} for ${p.business}. Use only saved business facts.`,
-        "Never claim availability or a confirmed booking. Booking requests require staff confirmation.",
-        `Communication tone: ${p.tone || "Friendly and concise"}.`,
-        `Greeting: ${p.greeting || ""}.`,
-        `Escalate when relevant: ${p.escalation_keywords || ""}.`,
-        `Hours: ${p.hours || "Not provided"}; weekly schedule: ${JSON.stringify(p.hours_json || [])}.`,
-        `Description: ${p.description || ""}; services: ${JSON.stringify(services.data || [])}.`,
-        `FAQs: ${JSON.stringify(faqs.data || [])}.`,
-      ].join("\n");
+      const systemPrompt = buildAssistantSystemPrompt(p, services.data || [], faqs.data || []);
       const result = await generateAssistantReply({
         message: message.trim(), profile: {
           business: p.business, serviceName: p.service_name, price: p.price, hours: p.hours,
