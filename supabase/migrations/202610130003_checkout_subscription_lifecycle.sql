@@ -172,6 +172,7 @@ begin
    -- A same-term renewal extends an existing paid period, without
    -- counting a replay as a new term or shortening already-paid access.
    if s.id is not null and s.plan=a.plan and s.billing_period=a.billing_period
+      and s.status in('active','cancellation_scheduled','grace')
       and s.current_period_end>begin_at then
       period_start := s.current_period_end;
    else
