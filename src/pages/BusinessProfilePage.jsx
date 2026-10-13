@@ -3,7 +3,7 @@ import { TextField } from "../shared";
 import { FormSection } from "../ui";
 import { buildBusinessProfileUpdate } from "../businessProfileFields";
 
-export function BusinessProfilePage({ user, onUpdateUser }) {
+export function BusinessProfilePage({ user, onUpdateUser, onNavigate }) {
   const [form, setForm] = useState({
     name: user?.business || "",
     category: user?.businessType || "Other",
@@ -14,7 +14,6 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
     website: user?.website || "",
     serviceName: user?.serviceName || "",
     price: user?.price || "",
-    hours: user?.hours || "",
   });
   const [saveState, setSaveState] = useState("idle");
   const [saveError, setSaveError] = useState("");
@@ -77,7 +76,13 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
         <FormSection title="Assistant context" description="Keep your summary up to date. Manage your full service catalog and weekly schedule from their dedicated pages.">
         <TextField label="Service name" value={form.serviceName} onChange={set("serviceName")} />
         <TextField label="Price" value={form.price} onChange={set("price")} />
-        <TextField label="Hours" value={form.hours} onChange={set("hours")} />
+        <div className="field">
+          <span className="field-label">Saved operating hours</span>
+          <p className="panel-help">{user?.hours || "No hours have been saved yet."}</p>
+          <button type="button" className="link-btn" onClick={() => onNavigate?.("hours")}>
+            Edit weekly schedule, timezone, and location
+          </button>
+        </div>
         </FormSection>
         {saveState === "saved" && <p className="save-status" role="status">Saved successfully</p>}
         {saveState === "error" && <p className="auth-error" role="alert">{saveError}</p>}
