@@ -322,7 +322,7 @@ export function ResetPasswordScreen({ go }) {
       if (!session) throw new Error("Recovery session expired. Request another reset link.");
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;
-      sessionStorage.removeItem(RECOVERY_FLAG);
+      localStorage.removeItem(RECOVERY_FLAG);
       setDone(true);
       setPassword("");
       setConfirm("");
