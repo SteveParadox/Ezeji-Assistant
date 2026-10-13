@@ -112,6 +112,33 @@ test("Ezeji new full migration bootstrap and transactional invariants",options,a
    assert.equal(query(roleSql(`insert into public.bookings(business_id,status)
       values('${owner}','confirmed')`),true).ok,false);
  });
+ await t.test("10 concurrent staff invitations obey three-seat Professional cap",async()=>{
+   const owner=uuid(),reference=ref();
+   seedOwner(owner);attempt(owner,reference);
+   query(settle(reference,3500000,uuid()));
+   const cmd=promisify(execFile);
+   const tries=await Promise.all(Array.from({length:10},(_,i)=>
+     cmd("psql",[...args,"-c",roleSql(`select public.create_staff_invitation(
+       '${owner}','${owner}','employee${i}@example.test','agent',
+       '${crypto.randomBytes(32).toString("hex")}')`)])
+     .then(()=>true).catch(()=>false)));
+   assert.equal(tries.filter(Boolean).length,3);
+   assert.equal(query(`select count(*) from public.business_staff_invitations
+     where business_id='${owner}' and status='pending'`).output,"3");
+ });
+ await t.test("delivery receipts never downgrade read to sent",()=>{
+   const owner=uuid(),eventId=uuid(),outId=uuid();
+   seedOwner(owner);
+   query(roleSql(`insert into public.whatsapp_events(id,business_id,provider_event_id,phone_number_id,kind,status)
+     values('${eventId}','${owner}','inbound-${eventId}','1234567890','inbound','completed');
+     insert into public.whatsapp_outbound_messages(id,inbound_event_id,business_id,
+       recipient_phone,reply_text,provider_message_id,status)
+     values('${outId}','${eventId}','${owner}','2348000000000','Thanks','wamid.test.${outId}','accepted')`));
+   query(roleSql(`select public.apply_whatsapp_delivery_status('${owner}','wamid.test.${outId}','read')`));
+   query(roleSql(`select public.apply_whatsapp_delivery_status('${owner}','wamid.test.${outId}','sent')`));
+   assert.equal(query(`select status from public.whatsapp_outbound_messages
+      where id='${outId}'`).output,"read");
+ });
  await t.test("exclusive confirmed booking ranges cannot overlap",()=>{
    const owner=uuid();seedOwner(owner);
    const a=uuid(),b=uuid(),service=uuid();
