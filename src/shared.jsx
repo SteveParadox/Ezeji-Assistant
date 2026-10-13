@@ -84,6 +84,11 @@ export async function resolveSignedInUser(authUser, accessToken) {
   const profile = await fetchProfile(authUser.id, authUser.email, authUser.user_metadata);
   if (profile) return profile;
 
+  // A missing profile for a registered owner should never depend on the staff
+  // endpoint being available before the owner's provisioning route runs.
+  // Authorization still comes from the server's verified bearer identity.
+  if (userMetadata?.business_registration?.business) return null;
+
   const response = await fetch(`${API_BASE_URL}/staff/me`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
