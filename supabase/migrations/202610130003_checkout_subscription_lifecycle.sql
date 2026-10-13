@@ -29,7 +29,7 @@ alter table public.checkout_attempts add constraint checkout_attempts_status_che
  check(status in ('pending','initialized','initialization_failed','settled','failed','expired','review_required'));
 create index if not exists checkout_attempts_reconciliation_due_idx
  on public.checkout_attempts(next_reconciliation_at,created_at)
- where status in ('pending','initialized','initialization_failed','review_required');
+ where status in ('pending','initialized','initialization_failed','expired');
 alter table public.checkout_attempts enable row level security;
 revoke all on public.checkout_attempts from public,anon,authenticated;
 grant select,insert,update on public.checkout_attempts to service_role;
