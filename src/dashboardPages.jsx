@@ -335,6 +335,7 @@ export function FAQsPage({ user }) {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState({ q: "", a: "" });
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!user?.id) return;
@@ -346,7 +347,7 @@ export function FAQsPage({ user }) {
       .order("created_at", { ascending: true })
       .then(({ data, error }) => {
         if (cancelled) return;
-        if (error) console.error("FAQs load error:", error);
+        if (error) setError("Could not load FAQs. Retry by returning to this page.");
         setFaqs(data || []);
         setLoading(false);
       });
@@ -354,32 +355,45 @@ export function FAQsPage({ user }) {
   }, [user?.id]);
 
   const add = async () => {
-    if (!draft.q.trim() || !user?.id) return;
-    setSaving(true);
-    const { data, error } = await supabase
-      .from("faqs")
-      .insert({ business_id: user.id, question: draft.q.trim(), answer: draft.a.trim() })
-      .select()
-      .single();
-    setSaving(false);
-    if (error) {
-      console.error("FAQ add error:", error);
+    if (saving || !user?.id) return;
+    if (!draft.q.trim() || !draft.a.trim()) {
+      setError("Enter both a question and its answer.");
       return;
     }
-    setFaqs((f) => [...f, data]);
-    setDraft({ q: "", a: "" });
+    setError("");
+    setSaving(true);
+    try {
+      const { data, error: saveError } = await supabase.from("faqs")
+        .insert({ business_id: user.id, question: draft.q.trim(), answer: draft.a.trim() })
+        .select().single();
+      if (saveError) throw saveError;
+      setFaqs((current) => [...current, data]);
+      setDraft({ q: "", a: "" });
+    } catch {
+      setError("Could not save this FAQ. Your text is still here; retry.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const remove = async (id) => {
-    setFaqs((f) => f.filter((item) => item.id !== id));
-    const { error } = await supabase.from("faqs").delete().eq("id", id);
-    if (error) console.error("FAQ delete error:", error);
+    if (!user?.id || !window.confirm("Delete this FAQ?")) return;
+    setError("");
+    try {
+      const { error: removeError } = await supabase.from("faqs").delete()
+        .eq("business_id", user.id).eq("id", id);
+      if (removeError) throw removeError;
+      setFaqs((current) => current.filter((item) => item.id !== id));
+    } catch {
+      setError("Could not delete this FAQ. Nothing was removed from the list.");
+    }
   };
 
   return (
     <div>
       <div className="page-header"><div><h1 className="page-title">FAQs</h1><p className="page-sub">Answers your assistant gives automatically - these are now sent to the AI.</p></div></div>
       <div className="panel">
+        {error && <p className="auth-error" role="alert">{error}</p>}
         {loading && <p className="panel-help">Loading...</p>}
         {!loading && faqs.length === 0 && <p className="panel-help">No FAQs yet - add your first one below.</p>}
         {faqs.map((f) => (
@@ -389,13 +403,13 @@ export function FAQsPage({ user }) {
               <p className="faq-a">{f.answer}</p>
             </div>
             <div className="row-actions">
-              <button className="icon-btn" onClick={() => remove(f.id)}><Trash2 className="icon-btn-icon" /></button>
+              <button className="icon-btn" aria-label="Delete FAQ" onClick={() => remove(f.id)}><Trash2 className="icon-btn-icon" /></button>
             </div>
           </div>
         ))}
         <div className="faq-add">
-          <input className="field-input" placeholder="New question" value={draft.q} onChange={(e) => setDraft((d) => ({ ...d, q: e.target.value }))} />
-          <input className="field-input" placeholder="Answer" value={draft.a} onChange={(e) => setDraft((d) => ({ ...d, a: e.target.value }))} />
+          <input className="field-input" aria-label="New FAQ question" placeholder="New question" value={draft.q} onChange={(e) => setDraft((d) => ({ ...d, q: e.target.value }))} />
+          <input className="field-input" aria-label="FAQ answer" placeholder="Answer" value={draft.a} onChange={(e) => setDraft((d) => ({ ...d, a: e.target.value }))} />
           <button className="btn btn--outline" onClick={add} disabled={saving}><Plus className="icon-btn-icon" /> {saving ? "Adding..." : "Add FAQ"}</button>
         </div>
       </div>
@@ -408,6 +422,7 @@ export function ServicesPage({ user }) {
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState({ name: "", price: "", duration: "" });
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     if (!user?.id) return;
@@ -419,7 +434,7 @@ export function ServicesPage({ user }) {
       .order("created_at", { ascending: true })
       .then(({ data, error }) => {
         if (cancelled) return;
-        if (error) console.error("Services load error:", error);
+        if (error) setError("Could not load services. Retry by returning to this page.");
         setItems(data || []);
         setLoading(false);
       });
@@ -427,32 +442,45 @@ export function ServicesPage({ user }) {
   }, [user?.id]);
 
   const add = async () => {
-    if (!draft.name.trim() || !user?.id) return;
-    setSaving(true);
-    const { data, error } = await supabase
-      .from("services")
-      .insert({ business_id: user.id, name: draft.name.trim(), price: draft.price.trim(), duration: draft.duration.trim() })
-      .select()
-      .single();
-    setSaving(false);
-    if (error) {
-      console.error("Service add error:", error);
+    if (saving || !user?.id) return;
+    if (!draft.name.trim()) {
+      setError("Enter a service name before adding it.");
       return;
     }
-    setItems((s) => [...s, data]);
-    setDraft({ name: "", price: "", duration: "" });
+    setError("");
+    setSaving(true);
+    try {
+      const { data, error: saveError } = await supabase.from("services")
+        .insert({ business_id: user.id, name: draft.name.trim(), price: draft.price.trim(), duration: draft.duration.trim() })
+        .select().single();
+      if (saveError) throw saveError;
+      setItems((current) => [...current, data]);
+      setDraft({ name: "", price: "", duration: "" });
+    } catch {
+      setError("Could not save this service. Your entry has been retained.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const remove = async (id) => {
-    setItems((s) => s.filter((it) => it.id !== id));
-    const { error } = await supabase.from("services").delete().eq("id", id);
-    if (error) console.error("Service delete error:", error);
+    if (!user?.id || !window.confirm("Delete this service?")) return;
+    setError("");
+    try {
+      const { error: removeError } = await supabase.from("services").delete()
+        .eq("business_id", user.id).eq("id", id);
+      if (removeError) throw removeError;
+      setItems((current) => current.filter((item) => item.id !== id));
+    } catch {
+      setError("Could not delete this service. Nothing was removed from the list.");
+    }
   };
 
   return (
     <div>
       <div className="page-header"><div><h1 className="page-title">Services & Pricing</h1><p className="page-sub">Menu items, services, or room rates - whatever you sell. Sent to the AI.</p></div></div>
       <div className="panel">
+        {error && <p className="auth-error" role="alert">{error}</p>}
         {loading && <p className="panel-help">Loading...</p>}
         {!loading && items.length === 0 && <p className="panel-help">No services yet - add your first one below.</p>}
         {items.length > 0 && (
@@ -465,7 +493,7 @@ export function ServicesPage({ user }) {
                   <td className="mono">{it.price}</td>
                   <td>{it.duration}</td>
                   <td className="row-actions">
-                    <button className="icon-btn" onClick={() => remove(it.id)}><Trash2 className="icon-btn-icon" /></button>
+                    <button className="icon-btn" aria-label="Delete service" onClick={() => remove(it.id)}><Trash2 className="icon-btn-icon" /></button>
                   </td>
                 </tr>
               ))}
@@ -473,9 +501,9 @@ export function ServicesPage({ user }) {
           </table>
         )}
         <div className="faq-add" style={{ marginTop: 16 }}>
-          <input className="field-input" placeholder="Service name" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
-          <input className="field-input" placeholder="Price ($65)" value={draft.price} onChange={(e) => setDraft((d) => ({ ...d, price: e.target.value }))} />
-          <input className="field-input" placeholder="Duration (45 min)" value={draft.duration} onChange={(e) => setDraft((d) => ({ ...d, duration: e.target.value }))} />
+          <input className="field-input" aria-label="Service name" placeholder="Service name" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
+          <input className="field-input" aria-label="Service price" placeholder="Price (NGN 15000)" value={draft.price} onChange={(e) => setDraft((d) => ({ ...d, price: e.target.value }))} />
+          <input className="field-input" aria-label="Service duration" placeholder="Duration (45 min)" value={draft.duration} onChange={(e) => setDraft((d) => ({ ...d, duration: e.target.value }))} />
           <button className="btn btn--outline" onClick={add} disabled={saving}><Plus className="icon-btn-icon" /> {saving ? "Adding..." : "Add item"}</button>
         </div>
       </div>
