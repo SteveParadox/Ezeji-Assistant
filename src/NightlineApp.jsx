@@ -641,4 +641,15 @@ const GLOBAL_CSS = `
   }
 }
 
+.hours-row { flex-wrap: wrap; justify-content: flex-start; gap: 12px; }
+.hours-day { width: 100px; flex: 0 0 100px; }
+.hours-edit-field { display: flex; flex-direction: column; gap: 4px; flex: 1 1 140px; color: var(--paper-muted); font-size: 12px; }
+.hours-edit-field .field-input { min-width: 0; padding: 8px 10px; }
+.hours-edit-field .field-input:disabled { opacity: .5; }
+@media (max-width: 480px) {
+  .hours-day { flex: 1 1 100%; }
+  .hours-edit-field { flex: 1 1 calc(50% - 12px); }
+  .hours-row > .link-btn { margin: 10px 0; }
+}
+
 `;
