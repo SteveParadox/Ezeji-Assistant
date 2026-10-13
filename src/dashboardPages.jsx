@@ -1100,6 +1100,23 @@ export function BillingPage({ user, onUpdateUser }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const cancelAtPeriodEnd = async () => {
+    if (!window.confirm("Keep your current paid access until the end of the purchased term, then stop?")) return;
+    setError("");
+    setIsSubmitting(true);
+    try {
+      const {data:{session}}=await supabase.auth.getSession();
+      if(!session)throw new Error("Sign in again.");
+      const response=await fetch(`${API_BASE_URL}/subscriptions/cancel-at-period-end`,{
+        method:"POST",headers:{Authorization:`Bearer ${session.access_token}`},
+      });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(result.error||"Unable to cancel subscription.");
+      setMessage(`Cancellation scheduled. Access continues until ${new Date(result.paidThrough).toLocaleDateString()}.`);
+    }catch(error){setError(error.message||"Unable to save cancellation preference");}
+    finally{setIsSubmitting(false);}
+  };
+
   const trialEndsAt = user?.trialEndsAt ? new Date(user.trialEndsAt) : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
   const isTrialExpired = user?.trialActive === false || trialEndsAt <= new Date();
   const daysLeft = Math.max(0, Math.ceil((trialEndsAt - Date.now()) / (1000 * 60 * 60 * 24)));
@@ -1184,6 +1201,16 @@ export function BillingPage({ user, onUpdateUser }) {
       <div className="panel">
         <h2 className="panel-title">Change plan</h2>
         <p className="panel-help">Choosing a paid plan takes you to Paystack's real, secure checkout page - your plan only activates once payment is confirmed.</p>
+        {user?.subscriptionEndsAt && (
+          <p className="panel-help">Paid access through: {new Date(user.subscriptionEndsAt).toLocaleDateString()}.
+            One-time purchases do not renew automatically.</p>
+        )}
+        {user?.paymentStatus === "active" && !user?.cancelAtPeriodEnd && (
+          <button className="btn btn--outline" onClick={cancelAtPeriodEnd} disabled={isSubmitting}>
+            Cancel at end of paid term
+          </button>
+        )}
+        {user?.cancelAtPeriodEnd && <p className="panel-help">Cancellation scheduled for the end of your paid term.</p>}
         <div className="billing-form">
           <label className="field">
             <span className="field-label">Plan</span>
