@@ -3,6 +3,7 @@ import { TextField } from "../shared";
 import { useConfirmation, Skeleton, StatusBadge } from "../ui";
 import { hasActivePremiumPlan } from "../planAccess";
 import { workspaceApi } from "../workspaceApi";
+import { isPublicHttpsWebhookUrl } from "../whatsappWebhookUrl";
 
 export function IntegrationsPage({ user }) {
   const confirm = useConfirmation();
@@ -47,7 +48,7 @@ export function IntegrationsPage({ user }) {
     setConnectionError("");
     try{
       await workspaceApi("/integrations/whatsapp",{method:"DELETE"});
-      setConnected(false);setPhoneNumberId("");setAccessToken("");setBusinessNumber("");
+      setConnected(false);setPhoneNumberId("");setAccessToken("");setBusinessNumber("");setSaveState("idle");
     }catch(error){setConnectionError(error.message||"Could not disconnect WhatsApp");}
   };
 
@@ -55,14 +56,7 @@ export function IntegrationsPage({ user }) {
   // The deployed backend operator must configure a public HTTPS callback and
   // matching server-side verification token before a WhatsApp integration works.
   const configuredWebhookUrl = import.meta.env.VITE_WHATSAPP_WEBHOOK_URL || "";
-  const webhookUrlIsValid = /^https:\/\//i.test(configuredWebhookUrl) && (() => {
-    try {
-      const address = new URL(configuredWebhookUrl);
-      return !["localhost", "127.0.0.1", "[::1]"].includes(address.hostname);
-    } catch {
-      return false;
-    }
-  })();
+  const webhookUrlIsValid = isPublicHttpsWebhookUrl(configuredWebhookUrl);
 
   return (
     <div>
@@ -92,8 +86,8 @@ export function IntegrationsPage({ user }) {
           <Skeleton />
         ) : (
           <div className="form-panel">
-            <TextField label="Phone Number ID" value={phoneNumberId} onChange={(e) => setPhoneNumberId(e.target.value)} placeholder="e.g. 109876543210987" />
-            <TextField label="Access token" type="password" value={accessToken} onChange={(e) => setAccessToken(e.target.value)} placeholder="Paste your Meta access token" />
+            <TextField label="Phone Number ID" value={phoneNumberId} onChange={(e) => { setPhoneNumberId(e.target.value); setSaveState("idle"); }} placeholder="e.g. 109876543210987" />
+            <TextField label="Access token" type="password" value={accessToken} onChange={(e) => { setAccessToken(e.target.value); setSaveState("idle"); }} placeholder="Paste your Meta access token" />
             {connectionError && <p className="auth-error" role="alert">{connectionError}</p>}
             {saveState === "saved" && <p className="save-status" role="status">Saved successfully</p>}
             <div className="billing-actions">
