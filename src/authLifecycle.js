@@ -1,7 +1,7 @@
 import { supabase } from "./supabaseClient";
 import { API_BASE_URL } from "./shared";
 import { signupDetails, selectedPaidPlan, callbackUrl } from "./authState";
-export { RECOVERY_FLAG, selectedPaidPlan, signupDetails, getRegistrationDetails, callbackUrl, readAuthCallback, hasAuthCallback, destinationForBusiness, readRecovery, rememberRecovery } from "./authState";
+export { RECOVERY_FLAG, selectedPaidPlan, signupDetails, getRegistrationDetails, callbackUrl, readAuthCallback, hasAuthCallback, destinationForBusiness, isSelectedPlanActive, readRecovery, rememberRecovery } from "./authState";
 
 export async function registerBusiness(form) {
   const email = String(form.email || "").trim().toLowerCase();
