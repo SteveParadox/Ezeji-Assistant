@@ -8,7 +8,7 @@ import {
 } from "./authScreens";
 import {
   completeAuthCallback, ensureBusinessProfile, getRegistrationDetails,
-  readAuthCallback, hasAuthCallback, scrubAuthCallback, selectedPaidPlan, RECOVERY_FLAG, readRecovery, rememberRecovery,
+  readAuthCallback, hasAuthCallback, scrubAuthCallback, selectedPaidPlan, isSelectedPlanActive, RECOVERY_FLAG, readRecovery, rememberRecovery,
 } from "./authLifecycle";
 import { DashboardShell, DASHBOARD_PAGES } from "./dashboardPages";
 import { ChatWidgetDemo } from "./chatWidget";
@@ -53,8 +53,7 @@ export default function NightlineApp() {
     setUser(profile);
     const selection = selectedPaidPlan(getStoredPlanSelection());
     const checkoutReturned = new URLSearchParams(window.location.search).get("checkout") === "success";
-    const selectedPlanActive = !!selection && profile.paymentStatus === "active" &&
-      profile.plan === selection.plan && profile.billingPeriod === selection.billingPeriod;
+    const selectedPlanActive = isSelectedPlanActive(profile, selection);
     if (selectedPlanActive) {
       window.localStorage.removeItem("nightline-plan-selection");
     }
@@ -214,8 +213,9 @@ export default function NightlineApp() {
     if (!freshSession) throw new Error("Your session has expired. Sign in again.");
     const current = await fetchProfile(freshSession.user.id, freshSession.user.email, freshSession.user.user_metadata);
     const selection = selectedPaidPlan(getStoredPlanSelection());
-    if (current?.paymentStatus === "active" &&
-        (!selection || (current.plan === selection.plan && current.billingPeriod === selection.billingPeriod))) {
+    // Without a saved expected plan, an old active subscription is not proof
+    // that the latest redirected Paystack transaction was successful.
+    if (isSelectedPlanActive(current, selection)) {
       clearCheckoutCallback();
       finishOwnerLogin(current);
       return true;
