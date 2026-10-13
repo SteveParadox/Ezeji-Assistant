@@ -5,7 +5,7 @@ import { Mail, Lock, CheckCircle2, Building2 } from "lucide-react";
 import { TextField, AuthShell, getStoredPlanSelection, fetchProfile } from "./shared";
 import { callbackUrl, ensureBusinessProfile, registerBusiness, getRegistrationDetails, startAuthenticatedCheckout, selectedPaidPlan, RECOVERY_FLAG } from "./authLifecycle";
 
-export function LoginScreen({ go, onLogin }) {
+export function LoginScreen({ go }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -67,7 +67,7 @@ export function LoginScreen({ go, onLogin }) {
   );
 }
 
-export function SignupScreen({ go, onLogin }) {
+export function SignupScreen({ go }) {
   const [form, setForm] = useState(() => {
     const selection = getStoredPlanSelection();
     return {
@@ -395,6 +395,33 @@ export function AuthErrorScreen({ go, error, retry }) {
       <p className="auth-error" role="alert">{error || "Unable to finish authentication."}</p>
       <button className="btn btn--amber btn--full" onClick={retry}>Try again</button>
       <button className="link-btn" onClick={() => go("forgot")}>Request a new password link</button>
+    </AuthShell>
+  );
+}
+
+
+export function PaymentPendingScreen({ onCheck, onDashboard }) {
+  const [checking, setChecking] = useState(false);
+  const [message, setMessage] = useState("Your payment is being verified. Your plan only activates after Paystack confirms it.");
+  const refresh = async () => {
+    if (checking) return;
+    setChecking(true);
+    try {
+      const active = await onCheck();
+      if (!active) setMessage("Payment has not been confirmed yet. You can retry without paying a second time.");
+    } catch (error) {
+      setMessage(error.message || "Unable to check payment status. Please retry.");
+    } finally {
+      setChecking(false);
+    }
+  };
+  return (
+    <AuthShell footer={<button className="link-btn" onClick={onDashboard}>Open dashboard</button>}>
+      <h1 className="auth-title">Checking your payment</h1>
+      <p className="auth-sub">{message}</p>
+      <button className="btn btn--amber btn--full" onClick={refresh} disabled={checking}>
+        {checking ? "Checking..." : "Refresh payment status"}
+      </button>
     </AuthShell>
   );
 }
