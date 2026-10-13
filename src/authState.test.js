@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   selectedPaidPlan, signupDetails, getRegistrationDetails, readAuthCallback,
-  hasAuthCallback, destinationForBusiness,
+  hasAuthCallback, destinationForBusiness, rememberRecovery, readRecovery,
 } from "./authState.js";
 
 test("paid-plan choices must come from the server-supported plan allowlist", () => {
@@ -47,4 +47,18 @@ test("expired recovery links convey errors rather than authorizing a normal sess
   const invalid = readAuthCallback({ search: "?auth_callback=recovery&error=access_denied", hash: "" });
   assert.equal(invalid.error, "access_denied");
   assert.equal(hasAuthCallback(invalid), true);
+});
+
+
+test("recovery restart marker is user-bound, time-limited, and contains no tokens", () => {
+  const map = new Map();
+  const storage = {
+    getItem(key) { return map.get(key) ?? null; },
+    setItem(key, value) { map.set(key, value); },
+  };
+  const session = { user: { id: "owner-1" }, access_token: "SECRET" };
+  rememberRecovery(session, storage, 10000);
+  assert.deepEqual(readRecovery(storage, 10001), { userId: "owner-1", expiresAt: 1810000 });
+  assert.equal(readRecovery(storage, 1810000), null);
+  assert.equal(JSON.stringify([...map.values()]).includes("SECRET"), false);
 });
