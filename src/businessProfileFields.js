@@ -17,7 +17,9 @@ export function buildBusinessProfileUpdate(form, current = {}) {
     contactEmail:email,phone,website,
     serviceName:String(form?.serviceName||"").trim(),
     price:String(form?.price||"").trim(),
-    hours:String(form?.hours||"").trim(),
+    // Opening hours are governed by the validated weekly schedule editor.
+    // Saving unrelated profile fields must never replace structured hours.
+    hours:String(current?.hours||"").trim(),
     description:String(form?.description||"").trim(),
   };
 }
