@@ -126,6 +126,10 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   }, [user?.id]);
 
   const clearChat = () => {
+    // Ignore replies from a request the user explicitly discarded.
+    requestGeneration.current += 1;
+    sendingRef.current = false;
+    setIsTyping(false);
     if (typeof window !== "undefined") {
       window.localStorage.removeItem(chatHistoryKey);
     }
