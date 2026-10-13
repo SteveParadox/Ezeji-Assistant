@@ -22,7 +22,7 @@ export function buildAssistantSystemPrompt(profile, services = [], faqs = []) {
     if (p.tone) lines.push(`Communication style: ${p.tone}.`);
     if (p.greeting) lines.push(`Greeting guidance: ${p.greeting}.`);
     if (p.escalation_keywords) {
-      lines.push(`Escalate to staff when these subjects arise: ${p.escalation_keywords}.`);
+      lines.push(`When these subjects arise, advise the customer to contact the business staff directly; do not promise an automatic handoff: ${p.escalation_keywords}.`);
     }
   }
   return lines.join("\n");
