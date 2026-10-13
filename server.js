@@ -377,7 +377,7 @@ app.post('/webhooks/paystack', async (req, res) => {
 app.get('/verify-paystack/:reference', async (req, res) => {
   try {
     if (!supabase) return res.status(503).json({ error: 'Database unavailable' });
-    const bearer = /^Bearer (\\S+)$/i.exec(req.headers.authorization || '');
+    const bearer = /^Bearer (\S+)$/i.exec(req.headers.authorization || '');
     if (!bearer) return res.status(401).json({ error: 'Sign in required' });
     const { data: auth, error: authError } = await supabase.auth.getUser(bearer[1]);
     if (authError || !auth?.user) return res.status(401).json({ error: 'Invalid session' });
