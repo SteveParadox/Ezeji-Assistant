@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeClockTime, normalizeWorkingHours, validateWorkingHours, summarizeWorkingHours } from "./workingHours.js";
+import { normalizeClockTime, normalizeWorkingHours, validateWorkingHours, buildWeeklySchedule, summarizeWorkingHours } from "./workingHours.js";
 
 test("old 12-hour schedules display correctly in time inputs", () => {
   assert.equal(normalizeClockTime("9:00 AM"), "09:00");
@@ -25,4 +25,20 @@ test("brand-new businesses are not assigned fictional hours", () => {
   assert.equal(schedule[0].open, "");
   assert.equal(schedule[0].close, "");
   assert.match(validateWorkingHours([{ ...schedule[0], closed: false }]), /after opening/);
+});
+
+
+test("brand-new accounts with empty hours_json can configure every weekday", () => {
+  const week = buildWeeklySchedule([]);
+  assert.equal(week.length, 7);
+  assert.deepEqual(week.map(row => row.day), ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]);
+  assert.ok(week.every(row => row.closed && !row.open && !row.close));
+  assert.equal(validateWorkingHours([{ ...week[0], closed: false, open: "10:00", close: "17:00" }, ...week.slice(1)]), null);
+});
+test("legacy partial weeks keep verified hours and gain blank closed days", () => {
+  const week = buildWeeklySchedule([{day:"Friday",open:"9:00 AM",close:"5:00 PM",closed:false}]);
+  assert.equal(week.length, 7);
+  assert.deepEqual(week[4], {day:"Friday",open:"09:00",close:"17:00",closed:false});
+  assert.equal(week[0].closed, true);
+  assert.equal(week[0].open, "");
 });
