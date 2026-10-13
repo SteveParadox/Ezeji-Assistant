@@ -31,6 +31,7 @@ export default function NightlineApp() {
   const [restoreScroll, setRestoreScroll] = useState(false);
   const [dashTab, setDashTab] = useState("overview");
   const [user, setUser] = useState(null);
+  const [staffMembershipOptions, setStaffMembershipOptions] = useState([]);
   const [session, setSession] = useState(null);
   const [pendingEmail, setPendingEmail] = useState("");
   const [authError, setAuthError] = useState("");
@@ -93,6 +94,19 @@ export default function NightlineApp() {
     setView("authLoading");
     setAuthError("");
     try {
+      const inviteToken = new URLSearchParams(window.location.search).get("staff_invite");
+      if (inviteToken && /^[a-f0-9]{64}$/.test(inviteToken)) {
+        const accepted = await fetch(`${API_BASE_URL}/staff/accept`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${nextSession.access_token}` },
+          body: JSON.stringify({ token: inviteToken }),
+        });
+        const result = await accepted.json().catch(() => ({}));
+        if (!accepted.ok) throw new Error(result.error || "Unable to accept staff invitation.");
+        const clean = new URL(window.location.href);
+        clean.searchParams.delete("staff_invite");
+        window.history.replaceState(null, "", clean.pathname + clean.search);
+      }
       let profile = await resolveSignedInUser(nextSession.user, nextSession.access_token);
       if (run !== authRun.current) return;
       if (!profile) {
@@ -111,6 +125,11 @@ export default function NightlineApp() {
       finishOwnerLogin(profile);
     } catch (error) {
       if (run !== authRun.current) return;
+      if (Array.isArray(error.memberships) && error.memberships.length) {
+        setStaffMembershipOptions(error.memberships);
+        setView("staffSelection");
+        return;
+      }
       setAuthError(error.message || "Account initialization failed. Please retry.");
       setView("authError");
     }
@@ -255,6 +274,21 @@ export default function NightlineApp() {
 
       {view === "authLoading" && <div className="auth-screen"><p role="status">Initializing your account...</p></div>}
       {view === "authError" && <AuthErrorScreen go={go} error={authError} retry={() => supabase.auth.getSession().then(({ data }) => data.session ? initializeSession(data.session) : setView("login"))} />}
+      {view === "staffSelection" && (
+        <div className="auth-screen"><div className="auth-card">
+          <h2>Choose a business</h2>
+          <p>Select the business whose staff dashboard you want to open.</p>
+          {staffMembershipOptions.map((item) => (
+            <button key={item.businessId} className="btn btn--outline btn--full"
+              onClick={() => {
+                sessionStorage.setItem("ezeji-staff-business", item.businessId);
+                if (session) initializeSession(session);
+              }}>
+              {item.business} ({item.role})
+            </button>
+          ))}
+        </div></div>
+      )}
       {view === "login" && <LoginScreen go={go} />}
       {view === "signup" && <SignupScreen go={go} />}
       {view === "verify" && <VerificationPendingScreen go={go} email={pendingEmail} />}
