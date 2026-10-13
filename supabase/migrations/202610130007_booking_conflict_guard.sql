@@ -1,6 +1,8 @@
 begin;
 alter table public.bookings add column if not exists business_timezone text not null default 'Africa/Lagos';
 alter table public.bookings add column if not exists requested_by text not null default 'dashboard';
+alter table public.bookings add column if not exists client_request_id text;
+create unique index if not exists bookings_request_idempotency_idx on public.bookings(business_id,client_request_id) where client_request_id is not null;
 alter table public.bookings add column if not exists cancellation_reason text;
 alter table public.bookings add column if not exists last_transition_at timestamptz not null default now();
 -- Historical entries that have only a date and loosely formatted time remain
@@ -47,10 +49,10 @@ create trigger booking_status_transition_guard before update on public.bookings
 create or replace function public.create_pending_booking(
  p_business_id uuid,p_customer_name text,p_customer_contact text,
  p_service_id uuid,p_start timestamptz,p_end timestamptz,
- p_timezone text,p_local_date date,p_local_time text,p_source text)
+ p_timezone text,p_local_date date,p_local_time text,p_source text,p_request_id text)
 returns uuid language plpgsql security definer set search_path=pg_catalog,public
 as $function$
-declare saved uuid; svc public.services%rowtype;
+declare saved uuid; svc public.services%rowtype; existing public.bookings%rowtype;
 begin
  if coalesce(auth.role(),'')<>'service_role' then
    raise exception 'Trusted booking server required' using errcode='42501';
@@ -61,7 +63,8 @@ begin
     or p_end>p_start+interval '8 hours'
     or p_start<now()+interval '5 minutes'
     or p_start>now()+interval '120 days'
-    or length(coalesce(p_timezone,''))>80 then
+    or length(coalesce(p_timezone,''))>80
+    or p_request_id is null or length(p_request_id) not between 12 and 120 then
    raise exception 'Invalid booking request' using errcode='22023';
  end if;
  select * into svc from public.services
@@ -69,17 +72,27 @@ begin
  if not found then raise exception 'Service not found' using errcode='P0002'; end if;
  insert into public.bookings(business_id,customer_name,customer_contact,
     service,service_id,starts_at,ends_at,booking_date,booking_time,
-    business_timezone,booking_source,requested_by,status)
+    business_timezone,booking_source,requested_by,status,client_request_id)
  values(p_business_id,p_customer_name,p_customer_contact,svc.name,svc.id,
    p_start,p_end,p_local_date,p_local_time,p_timezone,
-   p_source,p_source,'pending')
- returning id into saved;
+   p_source,p_source,'pending',p_request_id)
+ on conflict do nothing returning id into saved;
+ if saved is null then
+   select * into existing from public.bookings where business_id=p_business_id
+     and client_request_id=p_request_id;
+   if not found or existing.customer_name<>p_customer_name
+     or existing.customer_contact<>p_customer_contact
+     or existing.service_id<>p_service_id or existing.starts_at<>p_start then
+       raise exception 'Conflicting booking idempotency key' using errcode='23514';
+   end if;
+   return existing.id;
+ end if;
  return saved;
 end;
 $function$;
-revoke all on function public.create_pending_booking(uuid,text,text,uuid,timestamptz,timestamptz,text,date,text,text)
+revoke all on function public.create_pending_booking(uuid,text,text,uuid,timestamptz,timestamptz,text,date,text,text,text)
  from public,anon,authenticated;
-grant execute on function public.create_pending_booking(uuid,text,text,uuid,timestamptz,timestamptz,text,date,text,text)
+grant execute on function public.create_pending_booking(uuid,text,text,uuid,timestamptz,timestamptz,text,date,text,text,text)
  to service_role;
 
 -- Existing database staff and owner policies continue to determine who may
