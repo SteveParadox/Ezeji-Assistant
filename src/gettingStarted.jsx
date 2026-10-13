@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
+import { selectedPaidPlan } from "./authState";
+import { getStoredPlanSelection } from "./shared";
 
 // A read-only checklist derived from the database. Never store a deceptive
 // "onboarding complete" flag just because a user clicked Next.
-export function GettingStartedPage({ user, onNavigate }) {
+export function GettingStartedPage({ user, onNavigate, onCheckout }) {
   const [counts, setCounts] = useState({ loading: true, services: 0, faqs: 0, error: "" });
 
   useEffect(() => {
@@ -39,6 +41,9 @@ export function GettingStartedPage({ user, onNavigate }) {
   ];
   const required = steps.filter((step) => step.required);
   const complete = required.filter((step) => step.done).length;
+  const selectedPlan = selectedPaidPlan(getStoredPlanSelection());
+  const pendingPaidPlan = selectedPlan && !(user?.paymentStatus === "active" &&
+    user?.plan === selectedPlan.plan && user?.billingPeriod === selectedPlan.billingPeriod);
   const chatUrl = typeof window === "undefined" ? "" : new URL(`/?view=chat&biz=${encodeURIComponent(user?.id || "")}`, window.location.origin).href;
   return (
     <div>
@@ -52,6 +57,17 @@ export function GettingStartedPage({ user, onNavigate }) {
         <h2 className="panel-title">Essential setup: {complete} of {required.length}</h2>
         <progress className="setup-progress" value={complete} max={required.length} aria-label="Essential business setup progress" />
         <p className="panel-help">Only saved business information counts toward completion. Optional steps are available whenever you need them.</p>
+        {pendingPaidPlan && (
+          <div className="setup-billing-notice">
+            <p>You selected the {selectedPlan.plan} {selectedPlan.billingPeriod} plan.
+              Your selection is saved locally until you complete authenticated checkout.</p>
+            <button type="button" className="btn btn--amber" disabled={complete !== required.length || counts.loading || !!counts.error}
+              onClick={() => onCheckout?.()}>
+              Continue to secure checkout
+            </button>
+            {complete !== required.length && <p className="panel-help">Complete the essential setup steps above to continue.</p>}
+          </div>
+        )}
         {counts.loading && <p role="status">Checking saved setup...</p>}
         {counts.error && <p role="alert" className="auth-error">{counts.error}</p>}
       </div>
