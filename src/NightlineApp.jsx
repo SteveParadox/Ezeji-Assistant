@@ -591,4 +591,54 @@ const GLOBAL_CSS = `
   }
   .convo-layout { grid-template-columns: 1fr; }
 }
+
+/* The navigation drawer is collapsed by default on touch-sized viewports. */
+.dash-mobile-header { display: none; }
+.dash-mobile-toggle {
+  display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px;
+  border-radius: 10px; color: var(--paper); border: 1px solid var(--ink-border);
+  background: var(--ink-card); font: inherit; cursor: pointer;
+}
+.dash-nav-group { margin: 8px 0 16px; }
+.dash-nav-heading { margin: 6px 10px; color: var(--paper-faint); text-transform: uppercase; font-size: 10px; letter-spacing: .1em; }
+.dash-nav-item:focus-visible, .btn:focus-visible, .link-btn:focus-visible,
+.field-input:focus-visible, .dash-mobile-toggle:focus-visible {
+  outline: 2px solid var(--amber); outline-offset: 3px;
+}
+.setup-progress { display: block; width: 100%; height: 10px; accent-color: var(--amber); margin: 10px 0 18px; }
+.setup-checklist { display: grid; gap: 4px; }
+.setup-step { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.setup-step .panel-help { margin-top: 0; margin-bottom: 10px; }
+.setup-step > .btn { flex-shrink: 0; }
+@media (max-width: 900px) {
+  .dash-mobile-header {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 14px 18px; background: var(--ink-soft);
+    border-bottom: 1px solid var(--ink-border);
+  }
+  .dash-sidebar { display: none; width: 100%; max-height: min(70vh, 680px); overflow-y: auto; padding: 12px 18px; }
+  .dash-sidebar--open { display: flex; }
+  .dash-sidebar-top { display: none; }
+  .dash-nav { flex-direction: column; flex-wrap: nowrap; }
+  .dash-nav-group { width: 100%; }
+  .dash-nav-item { flex: none; width: 100%; min-width: 0; }
+  .dash-main { padding: 22px 18px 40px; }
+}
+@media (max-width: 480px) {
+  .dash-main { padding: 18px 12px 32px; }
+  .page-title { font-size: 23px; }
+  .panel { padding: 16px; }
+  .setup-step { align-items: flex-start; flex-direction: column; }
+  .setup-step > .btn { align-self: flex-start; }
+  .stat-grid { grid-template-columns: 1fr; }
+  .faq-add { flex-direction: column; }
+  .faq-add .field-input { min-width: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nl-root *, .nl-root *::before, .nl-root *::after {
+    scroll-behavior: auto !important; animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 `;
