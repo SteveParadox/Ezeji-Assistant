@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { attachStaffRoutes } from './server/staffRoutes.js';
 import { ensureOwnerBusiness } from './server/businessProvisioning.js';
+import { validatePaymentReplay } from './server/paymentReplay.js';
 import { attachWhatsAppRoutes, decryptToken } from './server/whatsappConnections.js';
 
 dotenv.config();
@@ -266,25 +267,14 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
 async function recordSuccessfulPayment({ provider, reference, plan, billingPeriod, currency, email, business, businessId, amount }) {
   if(!supabase) throw new Error('Payment database unavailable');
   if(!businessId || !Object.hasOwn(PRICE_MAP_NGN_KOBO,plan) || !['monthly','yearly'].includes(billingPeriod) || (currency||'').toUpperCase()!=='NGN' || amount!==PRICE_MAP_NGN_KOBO[plan][billingPeriod]) throw new Error('Invalid payment metadata or amount');
-  // A paid reference must activate a subscription at most once. Without
-  // this check, retrying an older signed webhook could downgrade an upgrade.
-  if (typeof reference !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(reference)) {
-    throw new Error('Invalid payment reference');
-  }
   const { data: prior, error: priorError } = await supabase.from('invoices')
-    .select('business_id,plan,billing_period,amount,currency,status')
+    .select('business_id,provider,plan,billing_period,amount,currency,status')
     .eq('provider', provider).eq('provider_reference', reference).maybeSingle();
   if (priorError) throw priorError;
-  if (prior) {
-    if (prior.business_id !== businessId || prior.plan !== plan ||
-        prior.billing_period !== billingPeriod || Number(prior.amount) !== amount ||
-        prior.currency !== (currency || '').toUpperCase()) {
-      throw new Error('Conflicting payment reference');
-    }
-    if (prior.status === 'paid') return;
-    // Refunded/failed references must never be resurrected by a replay.
-    throw new Error('Previously recorded payment is not eligible for activation');
-  }
+  const action = validatePaymentReplay(prior, {
+    reference, provider, plan, businessId, billingPeriod, currency, amount,
+  });
+  if (action === 'already_settled') return;
   let profile = null;
 
   if (businessId) {
