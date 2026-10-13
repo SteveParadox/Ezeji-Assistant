@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { buildOfflineFallbackReply, buildAssistantRequestPayload } from "./assistantLogic";
+import { buildOfflineFallbackReply } from "./assistantLogic";
+import { buildChatSendPayload } from "./chatRequest";
 import { Clock, Trash2, Send, X, MessageCircle, AlertTriangle, Mic, MicOff } from "lucide-react";
 import { API_BASE_URL } from "./shared";
 import { supabase } from "./supabaseClient";
@@ -17,6 +18,8 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   const [isListening, setIsListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const recognitionRef = useRef(null);
+  const requestGeneration = useRef(0);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     setVoiceSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
@@ -59,6 +62,12 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   // changes, in case this widget stays mounted across an account switch
   // instead of remounting fresh.
   useEffect(() => {
+    // A reply started for the previous business must never appear in the
+    // newly selected business conversation after account switching.
+    requestGeneration.current += 1;
+    sendingRef.current = false;
+    setIsTyping(false);
+    setKnowledge({ faqs: [], services: [] });
     if (typeof window === "undefined") return;
     try {
       const raw = window.localStorage.getItem(chatHistoryKey);
@@ -131,9 +140,11 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   };
 
   const send = async (text) => {
-    if (!enabled) return;
+    if (!enabled || sendingRef.current) return;
     const nextText = `${text || draft || ""}`.trim();
-    if (!nextText) return;
+    if (!nextText || !user?.id) return;
+    sendingRef.current = true;
+    const generation = requestGeneration.current;
 
     const nextConversation = [...messages, { from: "customer", text: nextText }];
     setMessages(nextConversation);
@@ -149,7 +160,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
     }
 
     try {
-      const payload = buildAssistantRequestPayload(nextText, user, nextConversation, knowledge, { previewOnly });
+      const payload = buildChatSendPayload(nextText, user, messages, knowledge, previewOnly);
       payload.requestId = crypto.randomUUID();
       setIsTyping(true);
       // Preview must be authorized as the owner and must not create customer records.
@@ -172,9 +183,11 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
       }
 
       const data = await response.json();
+      if (generation !== requestGeneration.current) return;
       setIsTyping(false);
       setMessages((m) => [...m, { from: "ai", text: data.reply }]);
     } catch (err) {
+      if (generation !== requestGeneration.current) return;
       console.error("assistant-reply request failed:", err);
       setIsTyping(false);
       setConnectionIssue(true);
@@ -183,6 +196,8 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
         ...m,
         { from: "ai", text: fallback, offline: true },
       ]);
+    } finally {
+      if (generation === requestGeneration.current) sendingRef.current = false;
     }
   };
 
@@ -252,7 +267,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
 
   return (
     <div className="widget-demo-stage">
-      <p className="widget-demo-caption">This is the embeddable widget your customers see on your site.</p>
+      <p className="widget-demo-caption">{previewOnly ? "Private assistant preview. Messages here do not create customer bookings or conversations." : "Customer web chat. Booking requests require staff confirmation."}</p>
       {open && (
         <div className="widget-panel">
           <div className="widget-header">
@@ -266,7 +281,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
             <div className="widget-header-right">
               <span className="widget-status">
                 <span className="widget-status-dot" />
-                <span className="widget-status-label mono">AI online</span>
+                <span className="widget-status-label mono">{previewOnly ? "Preview" : "Customer chat"}</span>
               </span>
               <button
                 className={`icon-btn ${disappearing ? "icon-btn--active" : ""}`}
