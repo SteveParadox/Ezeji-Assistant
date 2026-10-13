@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { attachStaffRoutes } from './server/staffRoutes.js';
+import { attachWhatsAppRoutes, decryptToken } from './server/whatsappConnections.js';
 
 dotenv.config();
 
@@ -406,7 +407,7 @@ app.post('/webhook/whatsapp', async (req, res) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${connection.access_token}`,
+        Authorization: `Bearer ${decryptToken(connection.access_token)}`,
       },
       body: JSON.stringify({
         messaging_product: 'whatsapp',
@@ -447,27 +448,6 @@ if (!process.env.VERCEL) {
 
 attachStaffRoutes(app,supabase);
 
-app.post('/integrations/whatsapp/test', async (req, res) => {
-  const { phoneNumberId, accessToken } = req.body || {};
-  if (!phoneNumberId?.trim() || !accessToken?.trim()) {
-    return res.status(400).json({ error: 'Phone Number ID and access token are required.' });
-  }
-
-  try {
-    const response = await fetch(`https://graph.facebook.com/v18.0/${encodeURIComponent(phoneNumberId.trim())}?fields=display_phone_number,verified_name`, {
-      headers: { Authorization: `Bearer ${accessToken.trim()}` },
-    });
-    const payload = await response.json();
-    if (!response.ok) {
-      return res.status(400).json({ error: payload.error?.message || 'Meta rejected these WhatsApp credentials.' });
-    }
-    return res.json({
-      verifiedName: payload.verified_name || '',
-      displayPhoneNumber: payload.display_phone_number || '',
-    });
-  } catch (error) {
-    return res.status(502).json({ error: 'Could not reach Meta to verify the WhatsApp connection.' });
-  }
-});
+attachWhatsAppRoutes(app,supabase);
 
 export default app;
