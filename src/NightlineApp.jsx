@@ -372,7 +372,7 @@ export default function NightlineApp() {
       )}
       {view === "dashboard" && user && (
         <DashboardShell go={(nextView) => (nextView === "login" ? handleLogout() : go(nextView))} active={dashTab} setActive={navigateDashboard} isStaff={user.isStaff}>
-          <ActivePage user={user} onUpdateUser={handleUpdateUser} onNavigate={navigateDashboard} />
+          <ActivePage key={`${user.id}:${user.isStaff ? "staff" : "owner"}:${dashTab}`} user={user} onUpdateUser={handleUpdateUser} onNavigate={navigateDashboard} />
         </DashboardShell>
       )}
     </div>
