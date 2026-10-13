@@ -77,7 +77,7 @@ export async function fetchProfile(userId, email, userMetadata = {}) {
     address: data.address,
     cityStateZip: data.city_state_zip,
     disappearingDefault: data.disappearing_default,
-    assistantLive: userMetadata.assistant_live !== false,
+    assistantLive: userMetadata?.assistant_live !== false,
   };
 }
 
