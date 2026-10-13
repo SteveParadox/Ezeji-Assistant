@@ -17,18 +17,32 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
     hours: user?.hours || "",
   });
   const [saveState, setSaveState] = useState("idle");
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const [saveError, setSaveError] = useState("");
+  const set = (k) => (e) => {
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+    setSaveState("idle");
+    setSaveError("");
+  };
 
   const handleSave = async () => {
     if (saveState === "saving") return;
-    setSaveState("saving");
+    let nextUser;
     try {
-      const nextUser = buildBusinessProfileUpdate(form,user);
+      nextUser = buildBusinessProfileUpdate(form, user);
+    } catch (validationError) {
+      setSaveError(validationError.message || "Check your business details.");
+      setSaveState("error");
+      return;
+    }
+    setSaveState("saving");
+    setSaveError("");
+    try {
       if (!onUpdateUser) throw new Error("Profile saving is unavailable");
       await onUpdateUser(nextUser);
       setSaveState("saved");
     } catch (error) {
-      console.error("Business profile save failed:",error.message);
+      console.error("Business profile save failed:", error.message);
+      setSaveError("Could not save your business profile. Check your connection and retry.");
       setSaveState("error");
     }
   };
@@ -66,7 +80,7 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
         <TextField label="Hours" value={form.hours} onChange={set("hours")} />
         </FormSection>
         {saveState === "saved" && <p className="save-status" role="status">Saved successfully</p>}
-        {saveState === "error" && <p className="auth-error" role="alert">Could not save your business profile. Check your connection and retry.</p>}
+        {saveState === "error" && <p className="auth-error" role="alert">{saveError}</p>}
         <button className="btn btn--amber" disabled={saveState === "saving"} onClick={handleSave}>{saveState === "saving" ? "Saving..." : "Save changes"}</button>
       </div>
     </div>
