@@ -261,7 +261,9 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
     }));
   }, [user?.business, user?.businessType, user?.email]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    if (saveState === "saving") return;
+    setSaveState("saving");
     const nextUser = {
       ...(user || {}),
       name: form.name.trim() || "My business",
@@ -275,12 +277,14 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
       description: form.description.trim() || "",
     };
 
-    if (onUpdateUser) {
-      onUpdateUser(nextUser);
+    try {
+      if (!onUpdateUser) throw new Error("Profile saving is unavailable");
+      await onUpdateUser(nextUser);
+      setSaveState("saved");
+    } catch (error) {
+      console.error("Business profile save failed:",error.message);
+      setSaveState("error");
     }
-
-    setSaveState("saved");
-    window.setTimeout(() => setSaveState("idle"), 1800);
   };
 
   return (
@@ -310,7 +314,8 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
         <TextField label="Price" value={form.price} onChange={set("price")} />
         <TextField label="Hours" value={form.hours} onChange={set("hours")} />
         {saveState === "saved" && <p className="save-status">Saved successfully</p>}
-        <button className="btn btn--amber" onClick={handleSave}>Save changes</button>
+        {saveState === "error" && <p className="auth-error">Could not save your business profile. Check your connection and retry.</p>}
+        <button className="btn btn--amber" disabled={saveState === "saving"} onClick={handleSave}>{saveState === "saving" ? "Saving..." : "Save changes"}</button>
       </div>
     </div>
   );
@@ -533,11 +538,17 @@ export function AISettingsPage({ user, onUpdateUser }) {
   const [escalationKeywords, setEscalationKeywords] = useState(user?.escalationKeywords || "refund, complaint, emergency");
   const [saveState, setSaveState] = useState("idle");
 
-  const save = () => {
-    if (!onUpdateUser) return;
-    onUpdateUser({ ...(user || {}), assistantName, tone, greeting, escalationKeywords });
-    setSaveState("saved");
-    window.setTimeout(() => setSaveState("idle"), 1800);
+  const save = async () => {
+    if (saveState === "saving") return;
+    setSaveState("saving");
+    try {
+      if (!onUpdateUser) throw new Error("Assistant settings are unavailable");
+      await onUpdateUser({ ...(user || {}), assistantName, tone, greeting, escalationKeywords });
+      setSaveState("saved");
+    } catch (error) {
+      console.error("Assistant settings save failed:",error.message);
+      setSaveState("error");
+    }
   };
 
   return (
@@ -565,7 +576,8 @@ export function AISettingsPage({ user, onUpdateUser }) {
           </label>
           <TextField label="Escalation keywords (comma separated)" value={escalationKeywords} onChange={(e) => setEscalationKeywords(e.target.value)} />
           {saveState === "saved" && <p className="save-status">Saved successfully</p>}
-          <button className="btn btn--amber" onClick={save}>Save settings</button>
+          {saveState === "error" && <p className="auth-error">Could not save assistant settings. Retry.</p>}
+          <button className="btn btn--amber" disabled={saveState === "saving"} onClick={save}>{saveState === "saving" ? "Saving..." : "Save settings"}</button>
         </div>
       )}
     </div>
@@ -625,7 +637,7 @@ export function StaffPage({ user }) {
       });
       setStaff((current) => [...current, staffMember]);
       setEmail("");
-      setNotice(inviteSent ? "Invitation email sent." : "Added. They can sign in with their existing account.");
+      setNotice(inviteSent ? "Invitation email sent." : "Invitation created. Share this secure link privately: " + inviteUrl);
     } catch (inviteError) {
       console.error("Staff invite error:", inviteError);
       setError(inviteError.message || "Couldn't invite that staff member.");
@@ -712,9 +724,15 @@ export function BookingsPage({ user }) {
   }, [user?.id, canManageBookings]);
 
   const updateStatus = async (id, status) => {
-    setBookings((b) => b.map((row) => (row.id === id ? { ...row, status } : row)));
-    const { error } = await supabase.from("bookings").update({ status }).eq("id", id);
-    if (error) console.error("Booking update error:", error);
+    setError("");
+    const {data, error} = await supabase.from("bookings")
+      .update({status}).eq("id",id).eq("business_id",user.id)
+      .select("id,status").maybeSingle();
+    if (error || !data) {
+      setError("Booking update was not saved. Another booking may already occupy that time.");
+      return;
+    }
+    setBookings((b) => b.map((row) => (row.id === id ? { ...row, status: data.status } : row)));
   };
 
   const deleteBooking = async (id) => {
