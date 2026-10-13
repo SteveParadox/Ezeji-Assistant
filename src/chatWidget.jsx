@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { buildOfflineFallbackReply, buildAssistantRequestPayload } from "./assistantLogic";
 import { Clock, Trash2, Send, X, MessageCircle, AlertTriangle, Mic, MicOff } from "lucide-react";
 import { API_BASE_URL } from "./shared";
+import { supabase } from "./supabaseClient";
 
 export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   const [open, setOpen] = useState(true);
@@ -151,9 +152,17 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
       const payload = buildAssistantRequestPayload(nextText, user, nextConversation, knowledge, { previewOnly });
       payload.requestId = crypto.randomUUID();
       setIsTyping(true);
-      const response = await fetch(`${API_BASE_URL}/assistant-reply`, {
+      // Preview must be authorized as the owner and must not create customer records.
+      const accessToken = previewOnly
+        ? (await supabase.auth.getSession()).data.session?.access_token
+        : null;
+      if (previewOnly && !accessToken) throw new Error("Sign in to test your assistant.");
+      const response = await fetch(`${API_BASE_URL}/${previewOnly ? "assistant-preview" : "assistant-reply"}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify(payload),
       });
 
