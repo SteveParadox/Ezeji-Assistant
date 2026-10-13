@@ -115,76 +115,46 @@ const PLAN_LIMITS = {
   'Business': Infinity,
 };
 
-async function checkUsageLimit(businessId, plan) {
-  if (!supabase || !businessId) return { allowed: true };
-
-  // The 14-day trial has two independent caps: a conversation-count
-  // ceiling (checked below) and the 14-day clock itself. The clock was
-  // never actually enforced here before - only shown as a passive message
-  // on the Billing page - so a trial business could keep using the
-  // assistant indefinitely past day 14 as long as they stayed under 100
-  // total conversations. We check the real trial_ends_at/trial_active
-  // columns straight from the database (never trust a client-supplied
-  // "plan" for this), not whatever the client claims its plan is.
-  if (plan === '14-day trial') {
-    const { data: trialProfile, error: trialError } = await supabase
-      .from('profiles')
-      .select('trial_active, trial_ends_at')
-      .eq('id', businessId)
-      .single();
-
-    if (!trialError && trialProfile) {
-      const expired = trialProfile.trial_active === false
-        || (trialProfile.trial_ends_at && new Date(trialProfile.trial_ends_at) <= new Date());
-      if (expired) {
-        return { allowed: false, reason: 'trial-expired' };
-      }
-    }
-  }
-
-  const limit = PLAN_LIMITS[plan] ?? PLAN_LIMITS['14-day trial'];
-  if (limit === Infinity) return { allowed: true };
-
-  const since = plan === '14-day trial'
-    ? new Date(0).toISOString()
-    : new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-
-  const { count, error } = await supabase
-    .from('conversations')
-    .select('id', { count: 'exact', head: true })
-    .eq('business_id', businessId)
-    .gte('created_at', since);
-
-  if (error) {
-    console.error('usage limit check error:', error);
-    return { allowed: true };
-  }
-
-  return { allowed: (count || 0) < limit, count: count || 0, limit };
+async function checkUsageLimit(businessId) {
+  if (!supabase) throw new Error('Usage database unavailable');
+  const result=await supabase.from('profiles').select('plan,payment_status,trial_active,trial_ends_at').eq('id',businessId).maybeSingle();
+  if (result.error || !result.data) throw new Error('Business entitlement unavailable');
+  const plan=result.data.plan;
+  if (plan==='14-day trial' && (result.data.trial_active!==true || !result.data.trial_ends_at || Date.parse(result.data.trial_ends_at)<=Date.now())) return {allowed:false,reason:'trial-expired'};
+  if (plan!=='14-day trial' && result.data.payment_status!=='active') return {allowed:false,reason:'subscription-inactive'};
+  const limit=PLAN_LIMITS[plan];
+  if (limit===undefined) return {allowed:false,reason:'unknown-plan'};
+  if (limit===Infinity) return {allowed:true,limit};
+  const now=new Date();
+  const since=plan==='14-day trial' ? new Date(0).toISOString() : new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),1)).toISOString();
+  const {count,error}=await supabase.from('conversations').select('id',{count:'exact',head:true}).eq('business_id',businessId).gte('created_at',since);
+  if (error) throw new Error('Usage count unavailable');
+  return {allowed:(count||0)<limit,count:count||0,limit};
 }
 
-app.post('/assistant-reply', async (req, res) => {
+app.post('/assistant-reply', async (req,res)=>{
   try {
-    const { message, profile, conversation, systemPrompt, businessId, plan } = req.body;
-
-    const usage = await checkUsageLimit(businessId, plan);
-    if (!usage.allowed) {
-      return res.json({
-        reply: usage.reason === 'trial-expired'
-          ? "Thanks for reaching out - this business's free trial has ended. Please contact them directly, or check back soon."
-          : "Thanks for reaching out - this business has reached their plan's conversation limit for now. Please contact them directly, or check back soon.",
-        provider: 'limit-reached',
-        limitReached: true,
-      });
-    }
-
-    const result = await generateAssistantReply({ message, profile, conversation, systemPrompt, businessId });
+    const {message,businessId,conversation}=req.body||{};
+    if(typeof businessId!=='string'|| !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(businessId)) return res.status(400).json({error:'Invalid business'});
+    if(typeof message!=='string'||!message.trim()||message.length>2000) return res.status(400).json({error:'Invalid message'});
+    if(conversation!==undefined && (!Array.isArray(conversation)||conversation.length>12||conversation.some(x=>!x||!['customer','ai'].includes(x.from)||typeof x.text!=='string'||x.text.length>2000))) return res.status(400).json({error:'Invalid history'});
+    if(!supabase) return res.status(503).json({error:'Service unavailable'});
+    const [prof,faq,services]=await Promise.all([
+      supabase.from('profiles').select('id,business,service_name,price,hours,description').eq('id',businessId).maybeSingle(),
+      supabase.from('faqs').select('question,answer').eq('business_id',businessId).limit(60),
+      supabase.from('services').select('name,price,duration').eq('business_id',businessId).limit(60)
+    ]);
+    if(prof.error||faq.error||services.error) return res.status(503).json({error:'Business lookup unavailable'});
+    if(!prof.data) return res.status(404).json({error:'Business not found'});
+    const usage=await checkUsageLimit(businessId);
+    if(!usage.allowed) return res.status(429).json({reply:'This business is temporarily unable to accept AI conversations. Contact them directly.',provider:'limit-reached',limitReached:true});
+    const p=prof.data;
+    const systemPrompt=`You are a customer assistant for ${p.business}. Answer using only business facts provided below. Do not invent availability or claim any booking is confirmed. Booking requests must be confirmed by staff. Hours: ${p.hours||'Not provided'}. Description: ${p.description||''}. Services: ${JSON.stringify(services.data||[])}. FAQs: ${JSON.stringify(faq.data||[])}`;
+    const result=await generateAssistantReply({message:message.trim(),profile:{business:p.business,serviceName:p.service_name,price:p.price,hours:p.hours},conversation:conversation||[],systemPrompt});
     return res.json(result);
-  } catch (error) {
-    console.error('assistant-reply error:', error);
-    res.status(500).json({
-      error: error.message || 'Unable to reach the AI service.',
-    });
+  } catch(error) {
+    console.error('assistant-reply error:',error.message);
+    return res.status(503).json({error:'Assistant temporarily unavailable'});
   }
 });
 
