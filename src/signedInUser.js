@@ -13,6 +13,12 @@ export async function resolveSignedInUserWith(authUser, accessToken, { lookupPro
   const response = await lookupStaff(accessToken);
   if (response.status === 404) return null;
   const result = await response.json().catch(() => ({}));
+  if (response.status === 409 && result.code === "STAFF_BUSINESS_SELECTION_REQUIRED"
+      && Array.isArray(result.memberships)) {
+    const err = new Error("Choose which business you want to access.");
+    err.memberships = result.memberships;
+    throw err;
+  }
   if (!response.ok) throw new Error(result.error || "Could not load staff access.");
   if (typeof result.businessId !== "string" ||
       !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(result.businessId) ||
@@ -25,5 +31,7 @@ export async function resolveSignedInUserWith(authUser, accessToken, { lookupPro
     plan: result.plan,
     authUserId: authUser.id,
     isStaff: true,
+    staffRole: result.role || "agent",
+    staffMemberships: result.memberships || [],
   };
 }
