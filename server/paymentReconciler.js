@@ -15,7 +15,7 @@ export async function reconcileDueCheckouts(db, {
   const cutoff = new Date(clock.getTime() - 120_000).toISOString();
   const { data: rows, error } = await db.from("checkout_attempts")
     .select("id,business_id,provider,provider_reference,provider_transaction_id,expected_amount,currency,customer_email,status,expires_at,reconciliation_attempts")
-    .in("status", ["pending", "initialized", "initialization_failed"])
+    .in("status", ["pending", "initialized", "initialization_failed", "expired"])
     .lt("created_at", cutoff)
     .or(`next_reconciliation_at.is.null,next_reconciliation_at.lte.${clock.toISOString()}`)
     .order("created_at", { ascending: true }).limit(Math.min(50, Math.max(1, batchSize)));
@@ -71,7 +71,7 @@ export async function reconcileDueCheckouts(db, {
       next_reconciliation_at: new Date(clock.getTime() + reconciliationDelayMs(attempts)).toISOString(),
       failure_reason: failureReason,
       updated_at: clock.toISOString(),
-    }).eq("id", attempt.id).in("status", ["pending","initialized","initialization_failed"]);
+    }).eq("id", attempt.id).in("status", ["pending","initialized","initialization_failed","expired"]);
     if (writeError) throw writeError;
   }
   return stats;
