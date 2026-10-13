@@ -232,16 +232,16 @@ export function OverviewPage({ user, onUpdateUser }) {
 
 export function BusinessProfilePage({ user, onUpdateUser }) {
   const [form, setForm] = useState({
-    name: user?.business || "Bloom & Co. Salon",
-    category: user?.businessType || "Salon & Beauty",
+    name: user?.business || "",
+    category: user?.businessType || "Other",
     customBusinessType: user?.customBusinessType || "",
-    description: user?.description || "A neighborhood salon specializing in cuts, color, and styling.",
-    phone: "(555) 210-8842",
-    email: user?.email || "hello@bloomandco.com",
-    website: "bloomandco.com",
-    serviceName: user?.serviceName || "Dreadlocks",
-    price: user?.price || "$180",
-    hours: user?.hours || "Mon-Sat 9:00 AM - 6:00 PM",
+    description: user?.description || "",
+    phone: user?.phone || "",
+    email: user?.contactEmail || "",
+    website: user?.website || "",
+    serviceName: user?.serviceName || "",
+    price: user?.price || "",
+    hours: user?.hours || "",
   });
   const [saveState, setSaveState] = useState("idle");
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
@@ -250,11 +250,13 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
     if (!user) return;
     setForm((current) => ({
       ...current,
-      name: user?.business || current.name,
-      category: user?.businessType || current.category,
+      name: user?.business || "",
+      category: user?.businessType || "Other",
       customBusinessType: user?.customBusinessType || current.customBusinessType,
-      email: user?.email || current.email,
-      serviceName: user?.serviceName || current.serviceName,
+      email: user?.contactEmail ?? "",
+      phone: user?.phone ?? "",
+      website: user?.website ?? "",
+      serviceName: user?.serviceName || "",
       price: user?.price || current.price,
       hours: user?.hours || current.hours,
       description: user?.description || current.description,
@@ -263,17 +265,24 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
 
   const handleSave = async () => {
     if (saveState === "saving") return;
+    if (form.name.trim().length < 2 ||
+        (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()))) {
+      setSaveState("error");
+      return;
+    }
     setSaveState("saving");
     const nextUser = {
       ...(user || {}),
-      name: form.name.trim() || "My business",
-      business: form.name.trim() || "My business",
+      name: form.name.trim(),
+      business: form.name.trim(),
       businessType: form.category || "Other",
       customBusinessType: form.category === "Other" ? form.customBusinessType.trim() : "",
-      email: form.email.trim().toLowerCase() || (user?.email || ""),
-      serviceName: form.serviceName.trim() || "Main service",
-      price: form.price.trim() || "$100",
-      hours: form.hours.trim() || "by appointment",
+      contactEmail: form.email.trim().toLowerCase(),
+      phone: form.phone.trim(),
+      website: form.website.trim(),
+      serviceName: form.serviceName.trim(),
+      price: form.price.trim(),
+      hours: form.hours.trim(),
       description: form.description.trim() || "",
     };
 
@@ -308,7 +317,7 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
           <textarea className="field-input field-textarea" rows={3} value={form.description} onChange={set("description")} />
         </label>
         <TextField label="Phone" value={form.phone} onChange={set("phone")} />
-        <TextField label="Email" type="email" value={form.email} onChange={set("email")} />
+        <TextField label="Public contact email (not login email)" type="email" value={form.email} onChange={set("email")} />
         <TextField label="Website" value={form.website} onChange={set("website")} />
         <TextField label="Service name" value={form.serviceName} onChange={set("serviceName")} />
         <TextField label="Price" value={form.price} onChange={set("price")} />
