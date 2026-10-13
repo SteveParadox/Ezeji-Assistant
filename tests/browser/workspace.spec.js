@@ -196,10 +196,10 @@ test('WhatsApp connection cannot be disconnected during an in-flight verificatio
   const update=page.getByRole('button',{name:'Update connection'});
   const disconnect=page.getByRole('button',{name:'Disconnect'});
   await expect(update).toBeVisible();
-  await page.getByRole('textbox',{name:'Access token'}).fill('replace-token');
+  await page.getByLabel('Access token',{exact:true}).fill('replace-token');
   await update.click();
   await expect(page.getByRole('button',{name:'Verifying with Meta...'})).toBeDisabled();
   await expect(disconnect).toBeDisabled();
-  await expect(page.getByRole('status',{name:''}).filter({hasText:'Saved successfully'})).toBeVisible();
+  await expect(page.getByText('Saved successfully',{exact:true})).toBeVisible();
   await expect(disconnect).toBeEnabled();
 });
