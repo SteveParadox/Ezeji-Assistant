@@ -134,6 +134,31 @@ test('onboarding readiness comes from saved rows and preserves selected paid pla
   await expect(page.getByRole('button',{name:'Continue to secure checkout'})).toBeEnabled(); await page.getByRole('button',{name:'Continue to secure checkout'}).click();
   await expect(page.getByRole('heading',{name:'Secure checkout'})).toBeVisible(); await expect(page.getByText('Professional plan',{exact:true})).toBeVisible();
 });
+
+test('newly registered businesses with blank hours can configure and save their week', async ({page}) => {
+  const {data,writes}=await setupApp(page);
+  data.profiles[0].hours_json=[];
+  data.profiles[0].hours='';
+  await page.goto('/?view=dashboard&tab=hours');
+  await expect(page.getByRole('button',{name:'Monday: mark open'})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Sunday: mark open'})).toBeVisible();
+  await page.getByRole('button',{name:'Monday: mark open'}).click();
+  await page.getByLabel('Monday opening time',{exact:true}).fill('10:00');
+  await page.getByLabel('Monday closing time',{exact:true}).fill('17:00');
+  await page.getByRole('button',{name:'Save hours and location'}).click();
+  await expect(page.getByRole('status')).toContainText('Saved successfully');
+  const update=writes.find(row=>row.table==='profiles'&&row.method==='PATCH');
+  expect(update.body.hours_json).toHaveLength(7);
+  expect(update.body.hours_json[0]).toEqual(expect.objectContaining({day:'Monday',open:'10:00',close:'17:00',closed:false}));
+});
+test('business profile links to canonical weekly hours editor instead of accepting conflicting text',async({page})=>{
+  await setupApp(page);await page.goto('/?view=dashboard&tab=profile');
+  await expect(page.getByRole('textbox',{name:'Hours',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Edit weekly schedule, timezone, and location'}).click();
+  await expect(page).toHaveURL(/tab=hours/);
+  await expect(page.getByLabel('Monday opening time',{exact:true})).toBeVisible();
+});
+
 test('weekly hours save actual input and preserve timezone',async({page})=>{
   const {writes}=await setupApp(page); await page.goto('/?view=dashboard&tab=hours');
   await page.getByLabel('Monday opening time',{exact:true}).fill('10:00'); await page.getByRole('button',{name:'Save hours and location'}).click();
