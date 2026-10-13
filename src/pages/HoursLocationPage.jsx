@@ -14,8 +14,22 @@ export function HoursLocationPage({ user, onUpdateUser }) {
   const [saveState, setSaveState] = useState("idle");
   const [saveError, setSaveError] = useState("");
 
-  const toggle = (i) => setHours((rows) => rows.map((row, idx) => idx === i ? { ...row, closed: !row.closed } : row));
-  const setClock = (i, key, value) => setHours((rows) => rows.map((row, idx) => idx === i ? { ...row, [key]: value } : row));
+  const markEdited = () => {
+    setSaveState("idle");
+    setSaveError("");
+  };
+  const toggle = (i) => {
+    setHours((rows) => rows.map((row, idx) => idx === i ? { ...row, closed: !row.closed } : row));
+    markEdited();
+  };
+  const setClock = (i, key, value) => {
+    setHours((rows) => rows.map((row, idx) => idx === i ? { ...row, [key]: value } : row));
+    markEdited();
+  };
+  const editField = (setter) => event => {
+    setter(event.target.value);
+    markEdited();
+  };
 
   const save = async () => {
     if (saveState === "saving") return;
@@ -78,11 +92,11 @@ export function HoursLocationPage({ user, onUpdateUser }) {
       <div className="panel form-panel">
         <h2 className="panel-title">Location & timezone</h2>
         <p className="panel-help">Save your weekly schedule and location together. Closed days have no invented opening times.</p>
-        <TextField label="Street address" value={address} onChange={(event) => setAddress(event.target.value)} />
-        <TextField label="City / State / ZIP" value={cityStateZip} onChange={(event) => setCityStateZip(event.target.value)} />
+        <TextField label="Street address" value={address} onChange={editField(setAddress)} />
+        <TextField label="City / State / ZIP" value={cityStateZip} onChange={editField(setCityStateZip)} />
         <label className="field">
           <span className="field-label">Timezone (IANA identifier)</span>
-          <input className="field-input" value={timezone} onChange={(event) => setTimezone(event.target.value)}
+          <input className="field-input" value={timezone} onChange={editField(setTimezone)}
             placeholder="Africa/Lagos" aria-label="Business timezone" />
         </label>
         {saveState === "saved" && <p className="save-status" role="status">Saved successfully</p>}
