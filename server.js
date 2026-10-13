@@ -658,13 +658,14 @@ app.post('/webhook/whatsapp', async (req, res) => {
           const {error:statusStoreError} = await supabase.from('whatsapp_events').upsert({
             business_id:connection.business_id,provider_event_id:statusEventId,
             phone_number_id:phoneNumberId,kind:'delivery_status',
-            status:'completed',
+            status:'queued',receipt_message_id:String(receipt.id),
+            receipt_status:receipt.status,
+            receipt_occurred_at:/^\d{9,12}$/.test(String(receipt.timestamp||''))
+              ? new Date(Number(receipt.timestamp)*1000).toISOString() : null,
           },{onConflict:'provider_event_id',ignoreDuplicates:true});
           if(statusStoreError) throw statusStoreError;
-          const {error:deliveryError} = await supabase.from('whatsapp_outbound_messages')
-            .update({status:receipt.status,updated_at:new Date().toISOString()})
-            .eq('provider_message_id',receipt.id).eq('business_id',connection.business_id);
-          if(deliveryError) throw deliveryError;
+          // Do not update outbox directly. The worker persists and applies
+          // these receipts after provider acceptance, with monotonic ordering.
         }
       }
     }
