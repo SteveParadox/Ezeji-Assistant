@@ -9,3 +9,15 @@ services:
         value: 22
       - key: PORT
         generateValue: false
+
+  - type: cron
+    name: ezeji-billing-maintenance
+    runtime: node
+    schedule: "*/15 * * * *"
+    buildCommand: npm ci
+    startCommand: node scripts/billing-maintenance.js
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Configure SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and
+      # PAYSTACK_SECRET_KEY as dashboard-managed secret values.
