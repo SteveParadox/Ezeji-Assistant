@@ -102,4 +102,15 @@ $function$;
 revoke all on function public.accept_staff_invitation(text,uuid,text) from public,anon,authenticated;
 grant execute on function public.accept_staff_invitation(text,uuid,text) to service_role;
 
+-- Restrictive policies also constrain any legacy permissive policies
+-- retained from old SQL scripts. Revoked memberships lose access immediately.
+drop policy if exists "Ezeji restrictive booking tenant" on public.bookings;
+create policy "Ezeji restrictive booking tenant" on public.bookings
+ as restrictive for all to authenticated
+ using(business_id=auth.uid() or public.is_business_staff(business_id))
+ with check(business_id=auth.uid() or public.is_business_staff(business_id));
+drop policy if exists "Ezeji restrictive conversation tenant" on public.conversations;
+create policy "Ezeji restrictive conversation tenant" on public.conversations
+ as restrictive for select to authenticated
+ using(business_id=auth.uid() or public.is_business_staff(business_id));
 commit;
