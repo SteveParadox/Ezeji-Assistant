@@ -266,6 +266,23 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
 async function recordSuccessfulPayment({ provider, reference, plan, billingPeriod, currency, email, business, businessId, amount }) {
   if(!supabase) throw new Error('Payment database unavailable');
   if(!businessId || !Object.hasOwn(PRICE_MAP_NGN_KOBO,plan) || !['monthly','yearly'].includes(billingPeriod) || (currency||'').toUpperCase()!=='NGN' || amount!==PRICE_MAP_NGN_KOBO[plan][billingPeriod]) throw new Error('Invalid payment metadata or amount');
+  // A paid reference must activate a subscription at most once. Without
+  // this check, retrying an older signed webhook could downgrade an upgrade.
+  if (typeof reference !== 'string' || !/^[a-zA-Z0-9._-]{1,120}$/.test(reference)) {
+    throw new Error('Invalid payment reference');
+  }
+  const { data: prior, error: priorError } = await supabase.from('invoices')
+    .select('business_id,plan,billing_period,amount,currency,status')
+    .eq('provider', provider).eq('provider_reference', reference).maybeSingle();
+  if (priorError) throw priorError;
+  if (prior) {
+    if (prior.business_id !== businessId || prior.plan !== plan ||
+        prior.billing_period !== billingPeriod || Number(prior.amount) !== amount ||
+        prior.currency !== (currency || '').toUpperCase()) {
+      throw new Error('Conflicting payment reference');
+    }
+    if (prior.status === 'paid') return;
+  }
   let profile = null;
 
   if (businessId) {
@@ -339,21 +356,35 @@ app.post('/webhooks/paystack', async (req, res) => {
 
 // Recommended once live: lets you confirm a payment server-side rather
 // than trusting the browser redirect alone.
+// Verification is private to the authenticated business owner. Do not return
+// raw Paystack customer or authorization details to arbitrary reference lookups.
 app.get('/verify-paystack/:reference', async (req, res) => {
-  const paystackKey = process.env.PAYSTACK_SECRET_KEY;
-  if (!paystackKey) {
-    return res.status(400).json({ error: 'Paystack is not configured yet.' });
-  }
-
   try {
-    const response = await fetch(`https://api.paystack.co/transaction/verify/${req.params.reference}`, {
-      headers: { Authorization: `Bearer ${paystackKey}` },
+    if (!supabase) return res.status(503).json({ error: 'Database unavailable' });
+    const bearer = /^Bearer (\S+)$/i.exec(req.headers.authorization || '');
+    if (!bearer) return res.status(401).json({ error: 'Sign in required' });
+    const { data: auth, error: authError } = await supabase.auth.getUser(bearer[1]);
+    if (authError || !auth?.user) return res.status(401).json({ error: 'Invalid session' });
+    const reference = req.params.reference;
+    if (!/^[a-zA-Z0-9._-]{1,120}$/.test(reference)) {
+      return res.status(400).json({ error: 'Invalid reference' });
+    }
+    const { data: invoice, error: invoiceError } = await supabase.from('invoices')
+      .select('business_id,status').eq('provider', 'paystack')
+      .eq('provider_reference', reference).eq('business_id', auth.user.id).maybeSingle();
+    if (invoiceError) throw invoiceError;
+    if (!invoice) return res.status(404).json({ error: 'Payment reference not found' });
+    if (!process.env.PAYSTACK_SECRET_KEY) return res.status(503).json({ error: 'Payment verification is unavailable' });
+    const response = await fetch('https://api.paystack.co/transaction/verify/' + encodeURIComponent(reference), {
+      headers: { Authorization: 'Bearer ' + process.env.PAYSTACK_SECRET_KEY },
+      signal: AbortSignal.timeout(15000),
     });
+    if (!response.ok) throw new Error('Paystack verification unavailable');
     const payload = await response.json();
-    res.json(payload);
+    return res.json({ verified: invoice.status === 'paid' && payload.data?.status === 'success' });
   } catch (error) {
-    console.error('paystack verify error:', error);
-    res.status(500).json({ error: 'Unable to verify transaction.' });
+    console.error('Paystack verification error:', error.message);
+    return res.status(503).json({ error: 'Unable to verify transaction' });
   }
 });
 
