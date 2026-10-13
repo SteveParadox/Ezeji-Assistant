@@ -4,11 +4,12 @@ import { buildBusinessProfileUpdate } from "./businessProfileFields";
 import { getPlanDetails, getTrialEndsAt } from "./billingLogic";
 import {
   LayoutDashboard, Building2, HelpCircle, ListChecks, Clock, Bot,
-  MessagesSquare, BarChart3, CreditCard, LogOut, Power, Plus, Trash2,
+  MessagesSquare, BarChart3, CreditCard, LogOut, Power, Plus, Trash2, Menu, X,
   CheckCircle2, MessageCircle,
 } from "lucide-react";
 import { Logo, TextField, StatCard, timeAgo, downloadCsv, API_BASE_URL, STAFF_LIMITS, ANALYTICS_TIER, AI_PERSONALITY_PLANS, CONVERSATION_LIMITS, getStoredPlanSelection, upsertProfile } from "./shared";
 import { ChatWidgetDemo } from "./chatWidget";
+import { GettingStartedPage } from "./gettingStarted";
 import { fetchAllPages } from "./dataPaging";
 import { hasActivePremiumPlan } from "./planAccess";
 
@@ -29,54 +30,80 @@ async function staffApi(path, options = {}) {
   return result;
 }
 
-export const NAV_ITEMS = [
-  { id: "overview", label: "Overview", icon: LayoutDashboard },
-  { id: "profile", label: "Business Profile", icon: Building2 },
-  { id: "faqs", label: "FAQs", icon: HelpCircle },
-  { id: "services", label: "Services & Pricing", icon: ListChecks },
-  { id: "hours", label: "Hours & Location", icon: Clock },
-  { id: "ai", label: "AI Settings", icon: Bot },
-  { id: "staff", label: "Staff", icon: MessagesSquare },
-  { id: "bookings", label: "Bookings", icon: CheckCircle2 },
-  { id: "conversations", label: "Conversations", icon: MessagesSquare },
-  { id: "analytics", label: "Analytics", icon: BarChart3 },
-  { id: "billing", label: "Billing", icon: CreditCard },
-  { id: "integrations", label: "Integrations", icon: Bot },
+export const NAV_GROUPS = [
+  { label: "Workspace", items: [
+    { id: "gettingStarted", label: "Getting started", icon: ListChecks },
+    { id: "overview", label: "Overview", icon: LayoutDashboard },
+  ]},
+  { label: "Assistant", items: [
+    { id: "ai", label: "AI Settings", icon: Bot },
+    { id: "faqs", label: "FAQs", icon: HelpCircle },
+  ]},
+  { label: "Inbox & bookings", items: [
+    { id: "conversations", label: "Conversations", icon: MessagesSquare },
+    { id: "bookings", label: "Bookings", icon: CheckCircle2 },
+  ]},
+  { label: "Business settings", items: [
+    { id: "profile", label: "Business Profile", icon: Building2 },
+    { id: "services", label: "Services & Pricing", icon: ListChecks },
+    { id: "hours", label: "Hours & Location", icon: Clock },
+    { id: "staff", label: "Staff", icon: MessagesSquare },
+  ]},
+  { label: "Operations", items: [
+    { id: "integrations", label: "Integrations", icon: Bot },
+    { id: "analytics", label: "Analytics", icon: BarChart3 },
+    { id: "billing", label: "Billing", icon: CreditCard },
+  ]},
 ];
+export const NAV_ITEMS = NAV_GROUPS.flatMap((group) => group.items);
 
 export function DashboardShell({ go, active, setActive, children, isStaff = false }) {
-  const visibleNavItems = isStaff
-    ? NAV_ITEMS.filter(({ id }) => id === "bookings" || id === "conversations")
-    : NAV_ITEMS;
-
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const groups = NAV_GROUPS.map((group) => ({
+    ...group,
+    items: isStaff
+      ? group.items.filter(({ id }) => ["bookings", "conversations"].includes(id))
+      : group.items,
+  })).filter((group) => group.items.length > 0);
+  const selectTab = (tab) => {
+    setActive(tab);
+    setMobileOpen(false);
+  };
   return (
     <div className="dash-shell">
-      <aside className="dash-sidebar">
-        <div className="dash-sidebar-top">
-          <Logo size={18} />
-        </div>
-        <button className="dash-nav-item" onClick={() => go("landing")}>
-          <MessageCircle className="dash-nav-icon" />
-          Back to landing
+      <div className="dash-mobile-header">
+        <Logo size={18} />
+        <button type="button" className="dash-mobile-toggle" aria-expanded={mobileOpen}
+          aria-controls="ezeji-dashboard-navigation" aria-label={mobileOpen ? "Close dashboard navigation" : "Open dashboard navigation"}
+          onClick={() => setMobileOpen((open) => !open)}>
+          {mobileOpen ? <X className="dash-nav-icon" /> : <Menu className="dash-nav-icon" />}
+          <span>Menu</span>
         </button>
-        <nav className="dash-nav">
-          {visibleNavItems.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              className={`dash-nav-item ${active === id ? "dash-nav-item--active" : ""}`}
-              onClick={() => setActive(id)}
-            >
-              <Icon className="dash-nav-icon" />
-              {label}
-            </button>
+      </div>
+      <aside id="ezeji-dashboard-navigation" className={`dash-sidebar ${mobileOpen ? "dash-sidebar--open" : ""}`}>
+        <div className="dash-sidebar-top"><Logo size={18} /></div>
+        <button type="button" className="dash-nav-item" onClick={() => go("landing")}>
+          <MessageCircle className="dash-nav-icon" /> Back to landing
+        </button>
+        <nav className="dash-nav" aria-label="Dashboard">
+          {groups.map((group) => (
+            <div className="dash-nav-group" key={group.label}>
+              <p className="dash-nav-heading">{group.label}</p>
+              {group.items.map(({ id, label, icon: Icon }) => (
+                <button type="button" key={id} aria-current={active === id ? "page" : undefined}
+                  className={`dash-nav-item ${active === id ? "dash-nav-item--active" : ""}`}
+                  onClick={() => selectTab(id)}>
+                  <Icon className="dash-nav-icon" />{label}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
-        <button className="dash-nav-item dash-logout" onClick={() => go("login")}>
-          <LogOut className="dash-nav-icon" />
-          Log out
+        <button type="button" className="dash-nav-item dash-logout" onClick={() => go("login")}>
+          <LogOut className="dash-nav-icon" /> Log out
         </button>
       </aside>
-      <main className="dash-main">{children}</main>
+      <main id="dashboard-content" className="dash-main">{children}</main>
     </div>
   );
 }
@@ -1246,6 +1273,7 @@ export function BillingPage({ user, onUpdateUser }) {
 }
 
 export const DASHBOARD_PAGES = {
+  gettingStarted: GettingStartedPage,
   overview: OverviewPage,
   profile: BusinessProfilePage,
   faqs: FAQsPage,
