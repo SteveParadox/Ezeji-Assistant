@@ -78,7 +78,8 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
         },
       ]);
       const storedDisappearing = window.localStorage.getItem(disappearingKey);
-      setDisappearing(storedDisappearing !== null ? storedDisappearing === "true" : user?.disappearingDefault !== false);
+      setDisappearing(previewOnly ? true :
+        storedDisappearing !== null ? storedDisappearing === "true" : user?.disappearingDefault !== false);
     } catch {
       // ignore
     }
@@ -271,7 +272,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
 
   return (
     <div className="widget-demo-stage">
-      <p className="widget-demo-caption">{previewOnly ? "Private assistant preview. Messages here do not create customer bookings or conversations." : "Customer web chat. Booking requests require staff confirmation."}</p>
+      <p className="widget-demo-caption">{previewOnly ? "Private assistant preview. Messages here do not create customer bookings or conversations." : "Customer web chat. Successful messages may be recorded by the business. Booking requests require staff confirmation."}</p>
       {open && (
         <div className="widget-panel">
           <div className="widget-header">
@@ -290,8 +291,9 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
               {!previewOnly && <button
                 className={`icon-btn ${disappearing ? "icon-btn--active" : ""}`}
                 onClick={() => setDisappearing((d) => !d)}
-                aria-label="Toggle disappearing messages" aria-pressed={disappearing}
-                title={disappearing ? "Disappearing messages: on" : "Disappearing messages: off"}
+                aria-label={disappearing ? "Stop storing messages on this device: on" : "Stop storing messages on this device: off"}
+                aria-pressed={disappearing}
+                title={disappearing ? "Device history: off" : "Device history: on"}
               >
                 <Clock className="icon-btn-icon" />
               </button>}
@@ -310,7 +312,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
             )}
             {disappearing && !previewOnly && (
               <div className="widget-disappearing-note">
-                Disappearing messages is on - this chat won't be saved.
+                Device history is off. Messages are not kept in this browser's local history, but the business may still retain customer exchanges on its server.
               </div>
             )}
             {messages.map((m, i) => (
