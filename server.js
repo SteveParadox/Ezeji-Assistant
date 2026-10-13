@@ -9,6 +9,7 @@ import { newPaystackReference, PAYSTACK_REFERENCE_PATTERN, parseVerifiedPaystack
 import { attachWhatsAppRoutes } from './server/whatsappConnections.js';
 import { attachAssistantPreviewRoute } from './server/assistantPreview.js';
 import { buildAssistantSystemPrompt } from './server/assistantPrompt.js';
+import { PLAN_PRICE_NGN_KOBO } from './shared/planCatalog.js';
 import { serviceDurationMinutes, validateBookingWindow } from './server/bookingValidation.js';
 
 dotenv.config();
@@ -208,17 +209,9 @@ app.post('/assistant-reply', async (req,res)=>{
   }
 });
 
-// Real NGN pricing, in kobo (Paystack's smallest currency unit for NGN,
-// same idea as cents). Priced directly in Naira - fair, round numbers in
-// the spirit of ChatGPT Plus's pricing, not derived from a USD figure.
-// Yearly = 10x monthly (2 months free). Must match the Pricing component's
-// `plans` array in NightlineLanding.jsx exactly, or the price shown won't
-// match the price charged.
-const PRICE_MAP_NGN_KOBO = {
-  Starter: { monthly: 1500000, yearly: 15000000 },       // NGN 15,000 / NGN 150,000
-  Professional: { monthly: 3500000, yearly: 35000000 },   // NGN 35,000 / NGN 350,000
-  Business: { monthly: 7500000, yearly: 75000000 },       // NGN 75,000 / NGN 750,000
-};
+// All Paystack checkout prices originate from the shared, immutable NGN
+// catalog. The backend remains authoritative when creating payment attempts.
+const PRICE_MAP_NGN_KOBO = PLAN_PRICE_NGN_KOBO;
 
 // The service-role database client is server-only. The bearer token is
 // verified on every request, and the owner ID is always derived from it.
