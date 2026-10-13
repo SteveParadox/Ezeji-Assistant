@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
+import { buildBusinessProfileUpdate } from "./businessProfileFields";
 import { getPlanDetails, getTrialEndsAt } from "./billingLogic";
 import {
   LayoutDashboard, Building2, HelpCircle, ListChecks, Clock, Bot,
@@ -265,28 +266,9 @@ export function BusinessProfilePage({ user, onUpdateUser }) {
 
   const handleSave = async () => {
     if (saveState === "saving") return;
-    if (form.name.trim().length < 2 ||
-        (form.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim()))) {
-      setSaveState("error");
-      return;
-    }
     setSaveState("saving");
-    const nextUser = {
-      ...(user || {}),
-      name: form.name.trim(),
-      business: form.name.trim(),
-      businessType: form.category || "Other",
-      customBusinessType: form.category === "Other" ? form.customBusinessType.trim() : "",
-      contactEmail: form.email.trim().toLowerCase(),
-      phone: form.phone.trim(),
-      website: form.website.trim(),
-      serviceName: form.serviceName.trim(),
-      price: form.price.trim(),
-      hours: form.hours.trim(),
-      description: form.description.trim() || "",
-    };
-
     try {
+      const nextUser = buildBusinessProfileUpdate(form,user);
       if (!onUpdateUser) throw new Error("Profile saving is unavailable");
       await onUpdateUser(nextUser);
       setSaveState("saved");
