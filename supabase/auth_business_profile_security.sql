@@ -35,7 +35,9 @@ security definer
 set search_path = public, auth
 as $function$
 begin
-  if auth.role() = 'service_role' or current_user = 'postgres' then
+  -- SECURITY DEFINER changes current_user to function owner. Never trust it.
+  -- Only verified service-role JWTs may change billing fields.
+  if auth.role() = 'service_role' then
     return new;
   end if;
 
