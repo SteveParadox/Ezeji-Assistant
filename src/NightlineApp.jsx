@@ -4,7 +4,7 @@ import { supabase } from "./supabaseClient";
 import { fetchPublicProfile, fetchProfile, resolveSignedInUser, upsertProfile, getStoredPlanSelection } from "./shared";
 import {
   LoginScreen, SignupScreen, CheckoutScreen, ForgotScreen, VerificationPendingScreen,
-  ResetPasswordScreen, BusinessSetupScreen, AuthErrorScreen,
+  ResetPasswordScreen, BusinessSetupScreen, AuthErrorScreen, PaymentPendingScreen,
 } from "./authScreens";
 import {
   completeAuthCallback, ensureBusinessProfile, getRegistrationDetails,
@@ -52,7 +52,14 @@ export default function NightlineApp() {
   const finishOwnerLogin = useCallback((profile) => {
     setUser(profile);
     const selection = selectedPaidPlan(getStoredPlanSelection());
-    if (!profile.isStaff && selection && !(profile.paymentStatus === "active" && profile.plan === selection.plan)) {
+    const checkoutReturned = new URLSearchParams(window.location.search).get("checkout") === "success";
+    if (profile.paymentStatus === "active" && profile.plan === selection?.plan) {
+      window.localStorage.removeItem("nightline-plan-selection");
+    }
+    if (checkoutReturned && profile.paymentStatus !== "active") {
+      setView("paymentPending"); // Redirect is not proof of payment.
+    } else if (!profile.isStaff && profile.paymentStatus !== "active" && selection &&
+               !(profile.paymentStatus === "active" && profile.plan === selection.plan)) {
       setView("checkout");
     } else {
       setDashTab(profile.isStaff ? "bookings" : "overview");
@@ -136,7 +143,7 @@ export default function NightlineApp() {
         }
         if (["INITIAL_SESSION", "SIGNED_IN", "TOKEN_REFRESHED", "USER_UPDATED"].includes(event) && nextSession) {
           // Token refresh should not tear down an already usable dashboard.
-          if (event === "TOKEN_REFRESHED") {
+          if (event === "TOKEN_REFRESHED" || event === "USER_UPDATED") {
             setSession(nextSession);
             return;
           }
@@ -161,6 +168,8 @@ export default function NightlineApp() {
         } catch (error) {
           if (!mounted) return;
           scrubAuthCallback();
+          sessionStorage.removeItem(RECOVERY_FLAG);
+          recoveryMode.current = false;
           callbackPending.current = false;
           setAuthError(error.message || "The verification or recovery link is invalid or expired.");
           setView("authError");
@@ -186,6 +195,25 @@ export default function NightlineApp() {
     setView("landing");
   };
 
+  const clearCheckoutCallback = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("checkout");
+    url.searchParams.delete("reference");
+    window.history.replaceState(null, "", url.pathname + url.search);
+  };
+
+  const checkPaymentConfirmation = async () => {
+    const { data: { session: freshSession } } = await supabase.auth.getSession();
+    if (!freshSession) throw new Error("Your session has expired. Sign in again.");
+    const current = await fetchProfile(freshSession.user.id, freshSession.user.email, freshSession.user.user_metadata);
+    if (current?.paymentStatus === "active") {
+      clearCheckoutCallback();
+      finishOwnerLogin(current);
+      return true;
+    }
+    return false;
+  };
+
   const handleUpdateUser = async (nextUser) => {
     if (!nextUser?.id) return;
     await upsertProfile(nextUser.id, nextUser);
@@ -204,6 +232,8 @@ export default function NightlineApp() {
       {view === "forgot" && <ForgotScreen go={go} />}
       {view === "resetPassword" && <ResetPasswordScreen go={go} />}
       {view === "businessSetup" && <BusinessSetupScreen go={go} session={session} onReady={finishOwnerLogin} />}
+      {view === "paymentPending" && <PaymentPendingScreen onCheck={checkPaymentConfirmation}
+        onDashboard={() => { clearCheckoutCallback(); setDashTab("billing"); setView("dashboard"); }} />}
       {view === "landing" && (
         <NightlineLanding
           user={user}
