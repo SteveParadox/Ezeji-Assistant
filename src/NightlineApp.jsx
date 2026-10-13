@@ -141,6 +141,7 @@ export default function NightlineApp() {
         if (event === "SIGNED_OUT") {
           ++authRun.current;
           recoveryMode.current = false;
+          localStorage.removeItem(RECOVERY_FLAG);
           setSession(null);
           setUser(null);
           setView((current) => current === "resetPassword" ? current : "login");
