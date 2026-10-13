@@ -7,6 +7,7 @@ import { attachStaffRoutes } from './server/staffRoutes.js';
 import { ensureOwnerBusiness } from './server/businessProvisioning.js';
 import { newPaystackReference, PAYSTACK_REFERENCE_PATTERN, parseVerifiedPaystackTransaction, paymentMatchesAttempt, isTrustedPaystackCheckoutUrl } from './server/paystackSettlement.js';
 import { attachWhatsAppRoutes } from './server/whatsappConnections.js';
+import { attachAssistantPreviewRoute } from './server/assistantPreview.js';
 import { serviceDurationMinutes, validateBookingWindow } from './server/bookingValidation.js';
 
 dotenv.config();
@@ -688,5 +689,6 @@ if (!process.env.VERCEL) {
 attachStaffRoutes(app,supabase);
 
 attachWhatsAppRoutes(app,supabase);
+attachAssistantPreviewRoute(app, supabase, generateAssistantReply);
 
 export default app;
