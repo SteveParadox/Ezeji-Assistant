@@ -170,21 +170,23 @@ const PRICE_MAP_NGN_KOBO = {
   Business: { monthly: 7500000, yearly: 75000000 },       // NGN 75,000 / NGN 750,000
 };
 
-app.post('/create-checkout-session', async (req, res) => {
+app.post('/create-checkout-session', async (req,res)=>{
   try {
-    const { plan, billingPeriod, email, business, name, businessId } = req.body;
-
-    const unitAmount = PRICE_MAP_NGN_KOBO[plan]?.[billingPeriod === 'yearly' ? 'yearly' : 'monthly'] || 0;
-
-    if (!unitAmount) {
-      return res.status(400).json({ error: 'Unknown plan or billing period.' });
-    }
-
-    return await handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, business, name, businessId, res });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: error.message || 'Unable to create checkout session.' });
-  }
+    if (!supabase) return res.status(503).json({error:'Database unavailable'});
+    const bearer=/^Bearer (\\S+)$/i.exec(req.headers.authorization||'');
+    if(!bearer) return res.status(401).json({error:'Sign in required'});
+    const {data:auth,error:authError}=await supabase.auth.getUser(bearer[1]);
+    if(authError||!auth?.user) return res.status(401).json({error:'Invalid session'});
+    const {data:business,error:businessError}=await supabase.from('profiles').select('id,business').eq('id',auth.user.id).maybeSingle();
+    if(businessError||!business) return res.status(403).json({error:'Business account not found'});
+    const {plan,billingPeriod}=req.body||{};
+    if(!Object.hasOwn(PRICE_MAP_NGN_KOBO,plan)||!['monthly','yearly'].includes(billingPeriod)) return res.status(400).json({error:'Invalid plan or billing period'});
+    return await handlePaystackCheckout({
+      unitAmount:PRICE_MAP_NGN_KOBO[plan][billingPeriod],
+      email:auth.user.email,plan,billingPeriod,
+      business:business.business,name:auth.user.user_metadata?.name||'',businessId:business.id,res
+    });
+  }catch(error){console.error('checkout error:',error.message);return res.status(503).json({error:'Unable to begin checkout'});}
 });
 
 async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, business, name, businessId, res }) {
@@ -231,8 +233,8 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
 }
 
 async function recordSuccessfulPayment({ provider, reference, plan, billingPeriod, currency, email, business, businessId, amount }) {
-  if (!supabase) return;
-
+  if(!supabase) throw new Error('Payment database unavailable');
+  if(!businessId || !Object.hasOwn(PRICE_MAP_NGN_KOBO,plan) || !['monthly','yearly'].includes(billingPeriod) || (currency||'').toUpperCase()!=='NGN' || amount!==PRICE_MAP_NGN_KOBO[plan][billingPeriod]) throw new Error('Invalid payment metadata or amount');
   let profile = null;
 
   if (businessId) {
@@ -241,13 +243,6 @@ async function recordSuccessfulPayment({ provider, reference, plan, billingPerio
     profile = data;
   }
 
-  if (!profile) {
-    // Fallback for older payments that didn't carry a businessId - matches
-    // by business name, which is less reliable if two accounts share one.
-    const { data, error } = await supabase.from('profiles').select('id').eq('business', business).limit(1).maybeSingle();
-    if (error) console.error(`${provider} profile lookup by name error:`, error);
-    profile = data;
-  }
 
   if (!profile) {
     console.warn(`${provider} payment received before a matching profile existed:`, business, businessId);
@@ -263,7 +258,7 @@ async function recordSuccessfulPayment({ provider, reference, plan, billingPerio
     trial_ends_at: new Date().toISOString(),
   }).eq('id', profile.id);
 
-  if (updateError) console.error(`${provider} profile update error:`, updateError);
+  if (updateError) throw updateError;
 
   const { error: invoiceError } = await supabase.from('invoices').upsert({
     business_id: profile.id,
@@ -277,7 +272,7 @@ async function recordSuccessfulPayment({ provider, reference, plan, billingPerio
     customer_email: email || null,
   }, { onConflict: 'provider,provider_reference' });
 
-  if (invoiceError) console.error(`${provider} invoice record error:`, invoiceError);
+  if (invoiceError) throw invoiceError;
 }
 
 app.post('/webhooks/paystack', async (req, res) => {
@@ -289,6 +284,7 @@ app.post('/webhooks/paystack', async (req, res) => {
     return res.status(401).json({ error: 'Invalid Paystack webhook signature.' });
   }
 
+  try {
   const event = req.body || {};
   if (event.event === 'charge.success' && event.data?.status === 'success') {
     const metadata = event.data.metadata || {};
@@ -306,6 +302,7 @@ app.post('/webhooks/paystack', async (req, res) => {
   }
 
   return res.json({ received: true });
+  }catch(error){console.error('Payment settlement failed:',error.message);return res.status(503).json({error:'Payment could not be recorded'});}
 });
 
 // Recommended once live: lets you confirm a payment server-side rather
