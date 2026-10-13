@@ -75,13 +75,17 @@ export default function NightlineApp() {
     }
     if (selectedPlanActive) window.localStorage.removeItem("nightline-plan-selection");
 
-    if (!profile.isStaff && selection && !selectedPlanActive && !requiresCoreBusinessSetup(profile)) {
-      setView("checkout");
-    } else {
-      const fallback = profile.isStaff ? "bookings" : requiresCoreBusinessSetup(profile) ? "gettingStarted" : "overview";
-      setDashTab(resolveDashboardTab(window.location.search, !!profile.isStaff, fallback));
+    // An outstanding paid choice resumes in the data-backed setup overview.
+    // Only that page knows whether services/FAQs actually exist; a handful
+    // of profile fields cannot prove business onboarding is complete.
+    if (!profile.isStaff && selection && !selectedPlanActive) {
+      setDashTab("gettingStarted");
       setView("dashboard");
+      return;
     }
+    const fallback = profile.isStaff ? "bookings" : requiresCoreBusinessSetup(profile) ? "gettingStarted" : "overview";
+    setDashTab(resolveDashboardTab(window.location.search, !!profile.isStaff, fallback));
+    setView("dashboard");
   }, []);
 
   const initializeSession = useCallback(async (nextSession) => {
@@ -371,11 +375,11 @@ export default function NightlineApp() {
             setLandingScrollY(window.scrollY);
             setRestoreScroll(true);
             if (selection) window.localStorage.setItem("nightline-plan-selection", JSON.stringify(selection));
-            if (user && selection?.mode === "paid" && requiresCoreBusinessSetup(user)) {
+            if (user && selection?.mode === "paid") {
               setDashTab("gettingStarted");
               go("dashboard");
             } else {
-              go(user ? (selection?.mode === "paid" ? "checkout" : "dashboard") : "signup");
+              go(user ? "dashboard" : "signup");
             }
           }}
         />
