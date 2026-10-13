@@ -42,3 +42,20 @@ test('customer local-history preference does not falsely promise server deletion
   await expect(page.getByRole('button', { name: /Stop storing messages on this device/ })).toBeVisible();
   await expect(page.getByText(/business may still retain customer exchanges on its server/)).toBeVisible();
 });
+
+test('late profile save cannot falsely confirm a newer unsaved change', async ({ page }) => {
+  await setupApp(page);
+  await page.route('https://ezeji-test.supabase.co/rest/v1/profiles**', async route => {
+    if (route.request().method() === 'PATCH') {
+      await new Promise(resolve => setTimeout(resolve, 400));
+    }
+    await route.fallback();
+  });
+  await page.goto('/?view=dashboard&tab=profile');
+  const save = page.getByRole('button', { name: 'Save changes' });
+  await save.click();
+  await expect(save).toBeDisabled();
+  await page.getByRole('textbox', { name: 'Business name' }).fill('This edit happened during an in-flight save');
+  await expect(save).toBeEnabled();
+  await expect(page.getByText('Saved successfully')).toHaveCount(0);
+});
