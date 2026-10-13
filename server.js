@@ -12,8 +12,8 @@ const port = process.env.PORT || 5174;
 // Used so the backend can actually write a real row to the bookings table
 // when the AI decides to create one, and to record real payments after a
 // Paystack webhook confirms them.
-const supabase = (process.env.SUPABASE_URL && (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY))
-  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)
+const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY)
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, { auth: {persistSession:false} })
   : null;
 
 const allowedOrigins = [
@@ -34,6 +34,7 @@ app.use(cors({
 }));
 
 app.use(express.json({
+  limit: '48kb',
   verify: (req, res, buffer) => {
     req.rawBody = Buffer.from(buffer);
   },
@@ -52,27 +53,8 @@ async function generateAssistantReply({ message, profile, conversation, systemPr
     };
   }
 
-  const tools = businessId ? [
-    {
-      type: 'function',
-      function: {
-        name: 'create_booking',
-        description: 'Create a real booking/appointment once you have the customer\'s name, contact info, desired service, date, and time. Only call this when you actually have these details from the conversation - ask for anything missing first instead of guessing.',
-        parameters: {
-          type: 'object',
-          properties: {
-            customer_name: { type: 'string', description: 'The customer\'s name' },
-            customer_contact: { type: 'string', description: 'Phone number or email to reach the customer' },
-            service: { type: 'string', description: 'What they\'re booking (e.g. "Cut & Color")' },
-            booking_date: { type: 'string', description: 'The requested date, in plain language (e.g. "Saturday")' },
-            booking_time: { type: 'string', description: 'The requested time (e.g. "9:00 AM")' },
-            notes: { type: 'string', description: 'Any other relevant details' },
-          },
-          required: ['customer_name', 'service', 'booking_date', 'booking_time'],
-        },
-      },
-    },
-  ] : undefined;
+  // No AI-generated confirmed booking until independent, atomic availability validation exists.
+  const tools = undefined;
 
   const baseMessages = [
     {
@@ -113,39 +95,6 @@ async function generateAssistantReply({ message, profile, conversation, systemPr
   }
 
   const responseMessage = payload.choices?.[0]?.message;
-  const toolCall = responseMessage?.tool_calls?.[0];
-
-  if (toolCall && toolCall.function?.name === 'create_booking' && supabase && businessId) {
-    let args;
-    try {
-      args = JSON.parse(toolCall.function.arguments);
-    } catch {
-      args = {};
-    }
-
-    const { error: insertError } = await supabase.from('bookings').insert({
-      business_id: businessId,
-      customer_name: args.customer_name || null,
-      customer_contact: args.customer_contact || null,
-      service: args.service || null,
-      booking_date: args.booking_date || null,
-      booking_time: args.booking_time || null,
-      notes: args.notes || null,
-    });
-
-    if (insertError) {
-      console.error('booking insert error:', insertError);
-      return {
-        reply: "I tried to lock that in but hit a snag saving it - could you try confirming those details again?",
-        provider: 'groq',
-        booked: false,
-      };
-    }
-
-    const confirmationReply = `Booked - ${args.booking_date} at ${args.booking_time} for ${args.service}${args.customer_name ? `, under ${args.customer_name}` : ''}. Anything else I can help with?`;
-    return { reply: confirmationReply, provider: 'groq', booked: true };
-  }
-
   return { reply: cleanAssistantReply(responseMessage?.content || 'I can help with that.'), provider: 'groq', booked: false };
 }
 
