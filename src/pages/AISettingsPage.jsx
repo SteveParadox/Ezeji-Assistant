@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { TextField } from "../shared";
 import { hasActivePremiumPlan } from "../planAccess";
 import { ChatWidgetDemo } from "../chatWidget";
@@ -11,21 +11,28 @@ export function AISettingsPage({ user, onUpdateUser }) {
   const [greeting, setGreeting] = useState(user?.greeting || `Hi! I'm ${user?.business || "your business"}'s assistant - ask me about hours, pricing, or booking.`);
   const [escalationKeywords, setEscalationKeywords] = useState(user?.escalationKeywords || "refund, complaint, emergency");
   const [saveState, setSaveState] = useState("idle");
+  const editRevision = useRef(0);
+  const savingRef = useRef(false);
   const edit = (setter) => event => {
+    editRevision.current += 1;
     setter(event.target.value);
-    setSaveState("idle");
+    setSaveState(state => state === "saving" ? "saving" : "idle");
   };
 
   const save = async () => {
-    if (saveState === "saving") return;
+    if (savingRef.current || !canCustomize) return;
+    savingRef.current = true;
+    const revisionAtStart = editRevision.current;
     setSaveState("saving");
     try {
       if (!onUpdateUser) throw new Error("Assistant settings are unavailable");
       await onUpdateUser({ ...(user || {}), assistantName, tone, greeting, escalationKeywords });
-      setSaveState("saved");
+      setSaveState(editRevision.current === revisionAtStart ? "saved" : "idle");
     } catch (error) {
-      console.error("Assistant settings save failed:",error.message);
-      setSaveState("error");
+      console.error("Assistant settings save failed:", error.message);
+      setSaveState(editRevision.current === revisionAtStart ? "error" : "idle");
+    } finally {
+      savingRef.current = false;
     }
   };
 
