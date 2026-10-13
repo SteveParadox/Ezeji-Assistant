@@ -206,10 +206,11 @@ app.post('/create-checkout-session', async (req,res)=>{
     if(!bearer) return res.status(401).json({error:'Sign in required'});
     const {data:auth,error:authError}=await supabase.auth.getUser(bearer[1]);
     if(authError||!auth?.user) return res.status(401).json({error:'Invalid session'});
-    const {data:business,error:businessError}=await supabase.from('profiles').select('id,business').eq('id',auth.user.id).maybeSingle();
+    const {data:business,error:businessError}=await supabase.from('profiles').select('id,business,plan,payment_status').eq('id',auth.user.id).maybeSingle();
     if(businessError||!business) return res.status(403).json({error:'Business account not found'});
     const {plan,billingPeriod}=req.body||{};
     if(!Object.hasOwn(PRICE_MAP_NGN_KOBO,plan)||!['monthly','yearly'].includes(billingPeriod)) return res.status(400).json({error:'Invalid plan or billing period'});
+    if(business.payment_status==='active' && business.plan===plan) return res.status(409).json({error:'This subscription is already active.'});
     return await handlePaystackCheckout({
       unitAmount:PRICE_MAP_NGN_KOBO[plan][billingPeriod],
       email:auth.user.email,plan,billingPeriod,
@@ -306,6 +307,7 @@ async function recordSuccessfulPayment({ provider, reference, plan, billingPerio
 }
 
 app.post('/webhooks/paystack', async (req, res) => {
+  if (!process.env.PAYSTACK_SECRET_KEY) return res.status(503).json({ error: 'Payment webhook not configured.' });
   const signature = req.headers['x-paystack-signature'];
   const expected = crypto.createHmac('sha512', process.env.PAYSTACK_SECRET_KEY || '').update(req.rawBody || '').digest('hex');
   const signatureBuffer = Buffer.from(`${signature || ''}`);
