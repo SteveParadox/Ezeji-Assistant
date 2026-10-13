@@ -969,7 +969,7 @@ export function AnalyticsPage({ user }) {
 
 export function IntegrationsPage({ user }) {
   const plan = user?.plan || "14-day trial";
-  const canConnect = AI_PERSONALITY_PLANS.includes(plan); // same Professional/Business gate as WhatsApp is sold on
+  const canConnect = hasActivePremiumPlan(user); // Server independently enforces this entitlement
   const [phoneNumberId, setPhoneNumberId] = useState("");
   const [accessToken, setAccessToken] = useState("");
   const [connected, setConnected] = useState(false);
@@ -981,83 +981,35 @@ export function IntegrationsPage({ user }) {
 
   useEffect(() => {
     if (!user?.id) return;
-    let cancelled = false;
-    supabase
-      .from("channel_connections")
-      .select("phone_number_id, access_token")
-      .eq("business_id", user.id)
-      .eq("channel", "whatsapp")
-      .maybeSingle()
-      .then(({ data }) => {
-        if (cancelled) return;
-        if (data) {
-          setPhoneNumberId(data.phone_number_id || "");
-          setAccessToken(data.access_token || "");
-          setConnected(true);
-          setBusinessNumber(data.display_phone_number || "");
-        }
-        setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, [user?.id]);
+    let cancelled=false;
+    staffApi("/integrations/whatsapp")
+      .then(({connection})=>{
+        if(cancelled)return;
+        if(connection){setConnected(true);setPhoneNumberId(connection.phone_number_id||"");}
+      })
+      .catch(error=>{if(!cancelled)setConnectionError(error.message||"Connection status unavailable");})
+      .finally(()=>{if(!cancelled)setLoading(false);});
+    return ()=>{cancelled=true;};
+  },[user?.id]);
 
-  const save = async () => {
-    if (!user?.id || !phoneNumberId.trim() || !accessToken.trim()) {
-      setConnectionError("Enter both the Phone Number ID and access token.");
-      return;
-    }
-    setConnectionError("");
-    setTestState("testing");
-    let testResponse;
+  const save=async()=>{
+    if(!phoneNumberId.trim()||!accessToken.trim()){setConnectionError("Enter a phone number ID and a new access token.");return;}
+    setConnectionError("");setTestState("testing");
     try {
-      testResponse = await fetch(`${API_BASE_URL}/integrations/whatsapp/test`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phoneNumberId, accessToken }),
+      const {connection}=await staffApi("/integrations/whatsapp",{
+        method:"PUT",body:JSON.stringify({phoneNumberId:phoneNumberId.trim(),accessToken:accessToken.trim()})
       });
-    } catch {
-      setTestState("idle");
-      setConnectionError("The integration server could not be reached.");
-      return;
-    }
-    const testPayload = await testResponse.json();
-    if (!testResponse.ok) {
-      setTestState("idle");
-      setConnectionError(testPayload.error || "Meta could not verify this connection.");
-      return;
-    }
-    const { error } = await supabase.from("channel_connections").upsert({
-      business_id: user.id,
-      channel: "whatsapp",
-      phone_number_id: phoneNumberId.trim(),
-      access_token: accessToken.trim(),
-    }, { onConflict: "business_id,channel" });
-
-    if (error) {
-      console.error("WhatsApp connect error:", error);
-      setTestState("idle");
-      setConnectionError("The credentials were verified, but the connection could not be saved.");
-      return;
-    }
-    setConnected(true);
-    setBusinessNumber(testPayload.displayPhoneNumber || "");
-    setTestState("idle");
-    setSaveState("saved");
-    window.setTimeout(() => setSaveState("idle"), 1800);
+      setConnected(true);setBusinessNumber(connection?.displayPhoneNumber||"");
+      setAccessToken("");setSaveState("saved");
+    }catch(error){setConnectionError(error.message||"Could not connect WhatsApp");}
+    finally{setTestState("idle");}
   };
-
-  const disconnect = async () => {
-    if (!user?.id) return;
+  const disconnect=async()=>{
     setConnectionError("");
-    const { error } = await supabase.from("channel_connections").delete().eq("business_id", user.id).eq("channel", "whatsapp");
-    if (error) {
-      setConnectionError("Could not disconnect WhatsApp. Please try again.");
-      return;
-    }
-    setConnected(false);
-    setPhoneNumberId("");
-    setAccessToken("");
-    setBusinessNumber("");
+    try{
+      await staffApi("/integrations/whatsapp",{method:"DELETE"});
+      setConnected(false);setPhoneNumberId("");setAccessToken("");setBusinessNumber("");
+    }catch(error){setConnectionError(error.message||"Could not disconnect WhatsApp");}
   };
 
   const webhookUrl = typeof window !== "undefined"
