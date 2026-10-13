@@ -78,6 +78,7 @@ export async function fetchProfile(userId, email, userMetadata = {}) {
     greeting: data.greeting,
     escalationKeywords: data.escalation_keywords,
     hoursJson: data.hours_json,
+    timezone: data.timezone || 'Africa/Lagos',
     address: data.address,
     cityStateZip: data.city_state_zip,
     disappearingDefault: data.disappearing_default,
@@ -126,6 +127,7 @@ export async function upsertProfile(userId, fields) {
     greeting: fields.greeting,
     escalation_keywords: fields.escalationKeywords,
     hours_json: fields.hoursJson,
+    timezone: fields.timezone,
     address: fields.address,
     city_state_zip: fields.cityStateZip,
   };
