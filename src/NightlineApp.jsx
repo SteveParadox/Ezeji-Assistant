@@ -250,7 +250,7 @@ export default function NightlineApp() {
       {view === "resetPassword" && <ResetPasswordScreen go={go} />}
       {view === "businessSetup" && <BusinessSetupScreen go={go} session={session} onReady={finishOwnerLogin} />}
       {view === "paymentPending" && <PaymentPendingScreen onCheck={checkPaymentConfirmation}
-        onDashboard={() => { clearCheckoutCallback(); setDashTab("billing"); setView("dashboard"); }} />}
+        onDashboard={() => { clearCheckoutCallback(); window.localStorage.removeItem("nightline-plan-selection"); setDashTab("billing"); setView("dashboard"); }} />}
       {view === "landing" && (
         <NightlineLanding
           user={user}
