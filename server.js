@@ -8,6 +8,7 @@ import { ensureOwnerBusiness } from './server/businessProvisioning.js';
 import { newPaystackReference, PAYSTACK_REFERENCE_PATTERN, parseVerifiedPaystackTransaction, paymentMatchesAttempt, isTrustedPaystackCheckoutUrl } from './server/paystackSettlement.js';
 import { attachWhatsAppRoutes } from './server/whatsappConnections.js';
 import { attachAssistantPreviewRoute } from './server/assistantPreview.js';
+import { buildAssistantSystemPrompt } from './server/assistantPrompt.js';
 import { serviceDurationMinutes, validateBookingWindow } from './server/bookingValidation.js';
 
 dotenv.config();
@@ -158,7 +159,7 @@ app.post('/assistant-reply', async (req,res)=>{
     if(conversation!==undefined && (!Array.isArray(conversation)||conversation.length>12||conversation.some(x=>!x||!['customer','ai'].includes(x.from)||typeof x.text!=='string'||x.text.length>2000))) return res.status(400).json({error:'Invalid history'});
     if(!supabase) return res.status(503).json({error:'Service unavailable'});
     const [prof,faq,services]=await Promise.all([
-      supabase.from('profiles').select('id,business,service_name,price,hours,description').eq('id',businessId).maybeSingle(),
+      supabase.from('profiles').select('id,business,plan,service_name,price,hours,description,assistant_name,tone,greeting,escalation_keywords,hours_json').eq('id',businessId).maybeSingle(),
       supabase.from('faqs').select('question,answer').eq('business_id',businessId).limit(60),
       supabase.from('services').select('name,price,duration').eq('business_id',businessId).limit(60)
     ]);
@@ -187,7 +188,7 @@ app.post('/assistant-reply', async (req,res)=>{
     }
     reservedId = reservation;
     const p=prof.data;
-    const systemPrompt=`You are a customer assistant for ${p.business}. Answer using only business facts provided below. Do not invent availability or claim any booking is confirmed. Booking requests must be confirmed by staff. Hours: ${p.hours||'Not provided'}. Description: ${p.description||''}. Services: ${JSON.stringify(services.data||[])}. FAQs: ${JSON.stringify(faq.data||[])}`;
+    const systemPrompt=buildAssistantSystemPrompt(p, services.data||[], faq.data||[]);
     const result=await generateAssistantReply({message:message.trim(),profile:{business:p.business,serviceName:p.service_name,price:p.price,hours:p.hours},conversation:conversation||[],systemPrompt});
     if(result.provider==='groq') {
       const {error:writeError}=await supabase.from('conversations').insert({business_id:businessId,customer_message:message.trim(),ai_reply:result.reply,escalated:false,booking_intent:/book|reserve|appointment/i.test(message)});
