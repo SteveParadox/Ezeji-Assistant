@@ -1146,6 +1146,7 @@ export function BillingPage({ user, onUpdateUser }) {
       window.localStorage.setItem("nightline-plan-selection", JSON.stringify({
         plan, billingPeriod, mode: "paid", currency: "NGN",
       }));
+      if (payload.reference) window.localStorage.setItem("ezeji-last-checkout-ref", payload.reference);
       window.location.href = payload.url;
     } catch (err) {
       setError(err.message || "Payment setup failed. Please try again.");
