@@ -381,9 +381,9 @@ export function FAQsPage({ user }) {
     if (!user?.id || !window.confirm("Delete this FAQ?")) return;
     setError("");
     try {
-      const { error: removeError } = await supabase.from("faqs").delete()
-        .eq("business_id", user.id).eq("id", id);
-      if (removeError) throw removeError;
+      const { data: removed, error: removeError } = await supabase.from("faqs").delete()
+        .eq("business_id", user.id).eq("id", id).select("id").maybeSingle();
+      if (removeError || removed?.id !== id) throw new Error("Deletion was not committed.");
       setFaqs((current) => current.filter((item) => item.id !== id));
     } catch {
       setError("Could not delete this FAQ. Nothing was removed from the list.");
@@ -468,9 +468,9 @@ export function ServicesPage({ user }) {
     if (!user?.id || !window.confirm("Delete this service?")) return;
     setError("");
     try {
-      const { error: removeError } = await supabase.from("services").delete()
-        .eq("business_id", user.id).eq("id", id);
-      if (removeError) throw removeError;
+      const { data: removed, error: removeError } = await supabase.from("services").delete()
+        .eq("business_id", user.id).eq("id", id).select("id").maybeSingle();
+      if (removeError || removed?.id !== id) throw new Error("Deletion was not committed.");
       setItems((current) => current.filter((item) => item.id !== id));
     } catch {
       setError("Could not delete this service. Nothing was removed from the list.");
