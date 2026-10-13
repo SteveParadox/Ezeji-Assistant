@@ -90,20 +90,19 @@ export function attachStaffRoutes(app, db) {
     const role = req.body?.role === "manager" ? "manager" : "agent";
     if (email.length > 254 || !MAIL.test(email)) throw failure(400,"Valid staff email required");
     if (email === user.email?.toLowerCase()) throw failure(400,"An owner cannot invite themself");
-    const [active,pending] = await Promise.all([
-      db.from("business_staff_memberships").select("id",{count:"exact",head:true})
-        .eq("business_id",profile.id).eq("status","active"),
-      db.from("business_staff_invitations").select("id",{count:"exact",head:true})
-        .eq("business_id",profile.id).eq("status","pending"),
-    ]);
-    if (active.error || pending.error) throw failure(503,"Staff capacity unavailable");
-    if ((active.count||0)+(pending.count||0) >= PLAN_SEATS[profile.plan]) throw failure(403,"Staff seat limit reached");
     const token = crypto.randomBytes(32).toString("hex");
     const hash = crypto.createHash("sha256").update(token).digest("hex");
-    const {data:invitation,error:saveError} = await db.from("business_staff_invitations")
-      .insert({business_id:profile.id,email,role,token_hash:hash,invited_by:user.id})
-      .select("id,email,created_at").single();
-    if (saveError) throw failure(409,"This staff member has already been invited");
+    const {data:invitationId,error:saveError}=await db.rpc("create_staff_invitation",{
+      p_business_id:profile.id,p_invited_by:user.id,p_email:email,p_role:role,p_token_hash:hash,
+    });
+    if(saveError) {
+      if(saveError.code==="P0001")throw failure(403,"Staff seat limit reached");
+      if(saveError.code==="23505")throw failure(409,"Staff member already invited or active");
+      throw failure(503,"Could not persist staff invitation");
+    }
+    const {data:invitation,error:lookupError}=await db.from("business_staff_invitations")
+      .select("id,email,created_at").eq("id",invitationId).eq("business_id",profile.id).single();
+    if(lookupError||!invitation)throw failure(503,"Staff invitation could not be confirmed");
     const base = new URL(process.env.APP_URL || "http://localhost:5173");
     base.searchParams.set("staff_invite",token);
     const inviteUrl = base.toString();
