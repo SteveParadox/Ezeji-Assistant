@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { TextField } from "../shared";
 import { FormSection } from "../ui";
 import { buildBusinessProfileUpdate } from "../businessProfileFields";
@@ -17,14 +17,17 @@ export function BusinessProfilePage({ user, onUpdateUser, onNavigate }) {
   });
   const [saveState, setSaveState] = useState("idle");
   const [saveError, setSaveError] = useState("");
+  const editRevision = useRef(0);
+  const savingRef = useRef(false);
   const set = (k) => (e) => {
+    editRevision.current += 1;
     setForm((f) => ({ ...f, [k]: e.target.value }));
-    setSaveState("idle");
+    setSaveState((state) => state === "saving" ? "saving" : "idle");
     setSaveError("");
   };
 
   const handleSave = async () => {
-    if (saveState === "saving") return;
+    if (savingRef.current) return;
     let nextUser;
     try {
       nextUser = buildBusinessProfileUpdate(form, user);
@@ -33,16 +36,24 @@ export function BusinessProfilePage({ user, onUpdateUser, onNavigate }) {
       setSaveState("error");
       return;
     }
+    savingRef.current = true;
+    const revisionAtStart = editRevision.current;
     setSaveState("saving");
     setSaveError("");
     try {
       if (!onUpdateUser) throw new Error("Profile saving is unavailable");
       await onUpdateUser(nextUser);
-      setSaveState("saved");
+      setSaveState(editRevision.current === revisionAtStart ? "saved" : "idle");
     } catch (error) {
       console.error("Business profile save failed:", error.message);
-      setSaveError("Could not save your business profile. Check your connection and retry.");
-      setSaveState("error");
+      if (editRevision.current === revisionAtStart) {
+        setSaveError("Could not save your business profile. Check your connection and retry.");
+        setSaveState("error");
+      } else {
+        setSaveState("idle");
+      }
+    } finally {
+      savingRef.current = false;
     }
   };
 
