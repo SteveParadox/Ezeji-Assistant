@@ -36,7 +36,7 @@ export function paymentMatchesAttempt(payment, attempt) {
   return !!attempt &&
     attempt.provider === "paystack" &&
     attempt.provider_reference === payment.p_reference &&
-    attempt.expected_amount === payment.p_amount &&
+    Number(attempt.expected_amount) === payment.p_amount &&
     attempt.currency === payment.p_currency &&
     attempt.customer_email?.trim().toLowerCase() === payment.p_customer_email &&
     (!attempt.provider_transaction_id ||
