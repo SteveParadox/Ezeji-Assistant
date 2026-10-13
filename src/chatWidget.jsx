@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from "react";
-import { supabase } from "./supabaseClient";
 import { buildOfflineFallbackReply, buildAssistantRequestPayload } from "./assistantLogic";
 import { Clock, Trash2, Send, X, MessageCircle, AlertTriangle, Mic, MicOff } from "lucide-react";
 import { API_BASE_URL } from "./shared";
@@ -102,16 +101,17 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
-    Promise.all([
-      supabase.from("faqs").select("question, answer").eq("business_id", user.id),
-      supabase.from("services").select("id, name, price, duration").eq("business_id", user.id),
-    ]).then(([faqsRes, servicesRes]) => {
-      if (cancelled) return;
-      setKnowledge({
-        faqs: faqsRes.data || [],
-        services: servicesRes.data || [],
+    fetch(`${API_BASE_URL}/public-business/${encodeURIComponent(user.id)}`)
+      .then(async response=>{
+        if(!response.ok)throw new Error("Could not load public business knowledge");
+        return response.json();
+      })
+      .then(payload=>{
+        if(!cancelled)setKnowledge({faqs:payload.faqs||[],services:payload.services||[]});
+      })
+      .catch(error=>{
+        if(!cancelled){setKnowledge({faqs:[],services:[]});console.error("Knowledge lookup error",error.message);}
       });
-    });
     return () => { cancelled = true; };
   }, [user?.id]);
 
