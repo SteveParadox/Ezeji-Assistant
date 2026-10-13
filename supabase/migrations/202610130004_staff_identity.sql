@@ -61,4 +61,45 @@ create policy "Verified staff update bookings" on public.bookings for update to 
 drop policy if exists "Verified staff read conversations" on public.conversations;
 create policy "Verified staff read conversations" on public.conversations for select to authenticated
  using(public.is_business_staff(business_id));
+create or replace function public.accept_staff_invitation(
+ p_token_hash text,p_user_id uuid,p_email text)
+returns uuid language plpgsql security definer
+set search_path=pg_catalog,public
+as $function$
+declare invitation public.business_staff_invitations%rowtype;
+ member_id uuid;
+begin
+ if coalesce(auth.role(),'') <> 'service_role' then
+   raise exception 'Privileged invitation acceptance required' using errcode='42501';
+ end if;
+ select * into invitation from public.business_staff_invitations
+ where token_hash=p_token_hash for update;
+ if not found then raise exception 'Invalid staff invitation' using errcode='22023'; end if;
+ if invitation.status='accepted' and invitation.accepted_by=p_user_id then
+   select id into member_id from public.business_staff_memberships
+    where business_id=invitation.business_id and user_id=p_user_id and status='active';
+   if member_id is not null then return member_id; end if;
+ end if;
+ if invitation.status<>'pending' or invitation.expires_at<=now() then
+   raise exception 'Staff invitation has expired or been used' using errcode='22023';
+ end if;
+ if lower(trim(invitation.email))<>lower(trim(p_email)) then
+   raise exception 'Invitation is not for this verified account' using errcode='42501';
+ end if;
+ insert into public.business_staff_memberships(
+ business_id,user_id,role,status,invited_email,invited_by,invited_at,accepted_at)
+ values(invitation.business_id,p_user_id,invitation.role,'active',
+  invitation.email,invitation.invited_by,invitation.created_at,now())
+ on conflict(business_id,user_id) do update set
+ status='active',role=excluded.role,invited_email=excluded.invited_email,
+ revoked_at=null,accepted_at=now(),updated_at=now()
+ returning id into member_id;
+ update public.business_staff_invitations set status='accepted',
+ accepted_at=now(),accepted_by=p_user_id where id=invitation.id;
+ return member_id;
+end;
+$function$;
+revoke all on function public.accept_staff_invitation(text,uuid,text) from public,anon,authenticated;
+grant execute on function public.accept_staff_invitation(text,uuid,text) to service_role;
+
 commit;
