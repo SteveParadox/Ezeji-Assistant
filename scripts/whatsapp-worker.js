@@ -21,6 +21,29 @@ async function saveEvent(event, fields) {
 }
 
 async function processEvent(event) {
+  if(event.kind==="delivery_status") {
+    if (!event.receipt_message_id || !["sent","delivered","read","failed"].includes(event.receipt_status)) {
+      await saveEvent(event,{status:"dead",lease_until:null,last_error:"Malformed delivery receipt"});
+      return;
+    }
+    const {data:updated,error}=await db.rpc("apply_whatsapp_delivery_status",{
+      p_business_id:event.business_id,p_message_id:event.receipt_message_id,
+      p_status:event.receipt_status,
+    });
+    if(error)throw error;
+    if(updated===true) {
+      await saveEvent(event,{status:"completed",lease_until:null});
+    } else {
+      // Meta can publish a receipt before the provider message ID is saved.
+      // Retry later without losing the receipt or degrading older status.
+      await saveEvent(event,{
+        status:event.attempts>=5?"review_required":"queued",
+        lease_until:null,next_attempt_at:new Date(Date.now()+90_000).toISOString(),
+        last_error:"Awaiting corresponding outbound provider ID",
+      });
+    }
+    return;
+  }
   // Only DB-leased records can be processed. A previous ambiguous send may
   // require human review; never blindly repeat such a send.
   const {data:outbound,error:outError}=await db.from("whatsapp_outbound_messages")
