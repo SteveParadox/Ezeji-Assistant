@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAssistantReply, buildAssistantRequestPayload } from './assistantLogic.js';
+import { buildOfflineFallbackReply as buildAssistantReply, buildAssistantRequestPayload } from './assistantLogic.js';
 
 test('buildAssistantReply uses service details and prior context', () => {
   const profile = {
