@@ -93,3 +93,48 @@ Actions runs currently report failure with no recorded steps; root cause
 cannot be determined from the connected log endpoint. The rollout gate remains
 blocked until npm ci, npm test, npm run lint, npm run build and staging flows
 all succeed with evidence.
+
+
+## Regression review: code-level corrections (2026-10-13)
+
+- **CRITICAL**: fixed a SECURITY DEFINER trigger check that trusted
+  current_user = 'postgres'. SECURITY DEFINER runs as the function owner and
+  would always allow billing updates through. The privileged path now checks
+  only auth.role() = 'service_role'.
+- **HIGH**: /verify-paystack/:reference now requires an authenticated owner
+  and an invoice tied to that owner; it returns no raw Paystack customer payload.
+- **HIGH**: webhook reference replay checks existing invoice by provider and
+  reference. A paid reference is ignored, a mismatched reference is rejected,
+  and refunded/failed references cannot re-activate subscriptions.
+- **HIGH**: checkout completion matches both exact plan and billing period
+  before showing success. A previous active plan never proves a new payment.
+  The settled callback and selected-plan keys are cleared on success; exiting
+  the pending screen does not restart checkout.
+- **MEDIUM**: owner registration metadata bypasses the unrelated staff lookup,
+  allowing provisioning even when the staff subsystem is unavailable.
+- **MEDIUM**: authorized owners can now switch billing periods for an existing
+  active plan, while duplicate same-plan/same-period requests are rejected.
+- Removed the duplicate auth-checks CI workflow; existing ci.yml already
+  runs npm ci, node --check, lint, npm test and npm run build.
+
+New tests: server/paymentReplay.test.js and new subscription-match cases in
+src/authState.test.js. Review smoke checks were performed from exact GitHub
+branch source in a JavaScript execution harness, including webhook conflict and
+SQL guard invariants. These are not equivalent to npm test, Postgres RLS,
+Paystack sandbox verification or browser E2E.
+
+## Remaining deployment limitations
+
+The current and preexisting main GitHub Actions jobs are completing with
+failure before reporting executable job steps. The source of those failures
+could not be obtained through the connected GitHub runner-log endpoint.
+Do not treat these as passing npm tests. The hosted Supabase schema, policies
+and email templates are not accessible from the GitHub repository. Database
+migration/application is **not** performed merely by merging this PR.
+
+Operational follow-up: protect duplicate checkout creation across concurrent
+tabs/instances using a durable payment-attempt record, and use atomic settlement
+for invoice plus subscription; the current profile-update/invoice-upsert
+sequence is retryable but not a single database transaction. Also verify
+refund and out-of-order distinct payment events in staging. Do not certify full
+financial production readiness until those operational checks are completed.
