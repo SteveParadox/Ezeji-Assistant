@@ -53,13 +53,14 @@ export default function NightlineApp() {
     setUser(profile);
     const selection = selectedPaidPlan(getStoredPlanSelection());
     const checkoutReturned = new URLSearchParams(window.location.search).get("checkout") === "success";
-    if (profile.paymentStatus === "active" && profile.plan === selection?.plan) {
+    const selectedPlanActive = !!selection && profile.paymentStatus === "active" &&
+      profile.plan === selection.plan && profile.billingPeriod === selection.billingPeriod;
+    if (selectedPlanActive) {
       window.localStorage.removeItem("nightline-plan-selection");
     }
-    if (checkoutReturned && profile.paymentStatus !== "active") {
-      setView("paymentPending"); // Redirect is not proof of payment.
-    } else if (!profile.isStaff && profile.paymentStatus !== "active" && selection &&
-               !(profile.paymentStatus === "active" && profile.plan === selection.plan)) {
+    if (!profile.isStaff && checkoutReturned && !selectedPlanActive) {
+      setView("paymentPending"); // Active on a different plan is NOT this payment.
+    } else if (!profile.isStaff && selection && !selectedPlanActive) {
       setView("checkout");
     } else {
       setDashTab(profile.isStaff ? "bookings" : "overview");
@@ -212,7 +213,9 @@ export default function NightlineApp() {
     const { data: { session: freshSession } } = await supabase.auth.getSession();
     if (!freshSession) throw new Error("Your session has expired. Sign in again.");
     const current = await fetchProfile(freshSession.user.id, freshSession.user.email, freshSession.user.user_metadata);
-    if (current?.paymentStatus === "active") {
+    const selection = selectedPaidPlan(getStoredPlanSelection());
+    if (current?.paymentStatus === "active" &&
+        (!selection || (current.plan === selection.plan && current.billingPeriod === selection.billingPeriod))) {
       clearCheckoutCallback();
       finishOwnerLogin(current);
       return true;
