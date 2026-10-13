@@ -8,6 +8,7 @@ import {
 const reference = "ezeji_123456789";
 const data = { status: true, data: { id: 808, reference, status: "success",
   amount: 3500000, currency: "NGN", customer: { email: "OWNER@example.test" },
+  paid_at: "2026-10-13T12:00:00.000Z",
   metadata: { businessId: "untrusted", plan: "Business" } } };
 const attempt = { provider: "paystack", provider_reference: reference,
   expected_amount: 3500000, currency: "NGN", customer_email: "owner@example.test" };
