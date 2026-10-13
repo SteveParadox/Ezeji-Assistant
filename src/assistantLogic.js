@@ -181,11 +181,11 @@ export function buildOfflineFallbackReply(message, profile = {}, conversation = 
   }
 
   if (/(hour|open|closed|when|available|today|tomorrow)/.test(text)) {
-    return `${openWith} ${hasHours ? `We're available ${hoursText}.` : `I don't have hours saved yet — ${hoursText} is the default.`}`;
+    return `${openWith} ${hasHours ? `The saved hours are ${hoursText}.` : `I don't have verified business hours available. Please contact the business to confirm.`}`;
   }
 
   if (/(price|cost|rate|quote|how much|how many|service)/.test(text)) {
-    return `${openWith} ${hasPrice ? `${serviceName} is ${priceText}.` : `I don't have a price saved yet — ${priceText} is the default.`}`;
+    return `${openWith} ${hasPrice ? `The saved price for ${serviceName} is ${priceText}.` : `I don't have verified pricing available. Please contact the business to confirm.`}`;
   }
 
   return `${openWith} ${supportLine}`;
@@ -202,7 +202,7 @@ function buildHelpfulBookingReply(context, text, lastIntent) {
   }
 
   if (serviceLike) {
-    return `${businessName}'s assistant here — ${hasPrice ? `${serviceName} starts at ${priceText}.` : `A starting point is ${priceText}.`}${hasHours ? ` We're usually open ${hoursText}.` : ''}`;
+    return `${businessName}'s assistant here — ${hasPrice ? `The saved price for ${serviceName} is ${priceText}.` : `Please contact the business for confirmed pricing.`}${hasHours ? ` The saved business hours are ${hoursText}.` : ''}`;
   }
 
   if (lastIntent === 'booking') {
