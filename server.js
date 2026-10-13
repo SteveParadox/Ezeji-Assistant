@@ -7,7 +7,7 @@ import { attachStaffRoutes } from './server/staffRoutes.js';
 import { ensureOwnerBusiness } from './server/businessProvisioning.js';
 import { isSameActiveSubscription } from './server/paymentReplay.js';
 import { newPaystackReference, PAYSTACK_REFERENCE_PATTERN, parseVerifiedPaystackTransaction, paymentMatchesAttempt, isTrustedPaystackCheckoutUrl } from './server/paystackSettlement.js';
-import { attachWhatsAppRoutes, decryptToken } from './server/whatsappConnections.js';
+import { attachWhatsAppRoutes } from './server/whatsappConnections.js';
 
 dotenv.config();
 
@@ -497,76 +497,56 @@ app.post('/webhook/whatsapp', async (req, res) => {
   const expected=Buffer.from('sha256='+crypto.createHmac('sha256',secret).update(req.rawBody).digest('hex'));
   const actual=Buffer.from(provided);
   if(actual.length!==expected.length||!crypto.timingSafeEqual(actual,expected)) return res.sendStatus(401);
-  res.sendStatus(200);
 
-  if (!supabase) {
-    console.error('WhatsApp webhook received but Supabase is not configured.');
-    return;
-  }
-
+  // The previous handler acknowledged before writing anything durable.
+  // Here every recognized event is committed before Meta gets HTTP 200.
+  if (!supabase) return res.status(503).json({error:'Message persistence unavailable'});
   try {
-    const entry = req.body?.entry?.[0];
-    const change = entry?.changes?.[0]?.value;
-    const message = change?.messages?.[0];
-    if (!message || message.type !== 'text') return;
-
-    const phoneNumberId = change?.metadata?.phone_number_id;
-    const customerNumber = message.from;
-    const customerText = message.text?.body || '';
-
-    const { data: connection, error: connectionError } = await supabase
-      .from('channel_connections')
-      .select('business_id, access_token')
-      .eq('channel', 'whatsapp')
-      .eq('phone_number_id', phoneNumberId)
-      .maybeSingle();
-
-    if (connectionError || !connection) {
-      console.error('No business connected to this WhatsApp number:', phoneNumberId);
-      return;
+    const entries = Array.isArray(req.body?.entry) ? req.body.entry : [];
+    for (const entry of entries) {
+      for (const change of (Array.isArray(entry.changes) ? entry.changes : [])) {
+        const value = change?.value;
+        const phoneNumberId = String(value?.metadata?.phone_number_id || '');
+        if (!/^\d{8,24}$/.test(phoneNumberId)) continue;
+        const { data: connection, error: connectionError } = await supabase.from('channel_connections')
+          .select('business_id').eq('channel','whatsapp').eq('phone_number_id',phoneNumberId).maybeSingle();
+        if (connectionError) throw connectionError;
+        if (!connection) continue;
+        for (const message of (Array.isArray(value?.messages) ? value.messages : [])) {
+          if (message?.type !== 'text' || !message?.id || !message?.from) continue;
+          const text = String(message.text?.body || '').trim().slice(0,2000);
+          if (!text) continue;
+          const { error: persistedError } = await supabase.from('whatsapp_events').upsert({
+            business_id:connection.business_id,
+            provider_event_id:String(message.id),
+            phone_number_id:phoneNumberId,
+            sender_phone:String(message.from),
+            customer_text:text,
+            kind:'inbound',
+            status:'queued',
+          },{onConflict:'provider_event_id',ignoreDuplicates:true});
+          if(persistedError) throw persistedError;
+        }
+        for (const receipt of (Array.isArray(value?.statuses) ? value.statuses : [])) {
+          if(!receipt?.id || !['sent','delivered','read','failed'].includes(receipt.status)) continue;
+          const statusEventId = 'status:' + receipt.id + ':' + receipt.status + ':' + String(receipt.timestamp || '');
+          const {error:statusStoreError} = await supabase.from('whatsapp_events').upsert({
+            business_id:connection.business_id,provider_event_id:statusEventId,
+            phone_number_id:phoneNumberId,kind:'delivery_status',
+            status:'completed',
+          },{onConflict:'provider_event_id',ignoreDuplicates:true});
+          if(statusStoreError) throw statusStoreError;
+          const {error:deliveryError} = await supabase.from('whatsapp_outbound_messages')
+            .update({status:receipt.status,updated_at:new Date().toISOString()})
+            .eq('provider_message_id',receipt.id).eq('business_id',connection.business_id);
+          if(deliveryError) throw deliveryError;
+        }
+      }
     }
-
-    const businessId = connection.business_id;
-    const usage = await checkUsageLimit(businessId);
-    if (!usage.allowed) { console.warn('WhatsApp subscription or quota denied', businessId); return; }
-
-    const [{ data: profile }, { data: faqs }, { data: services }] = await Promise.all([
-      supabase.from('profiles').select('*').eq('id', businessId).maybeSingle(),
-      supabase.from('faqs').select('question, answer').eq('business_id', businessId),
-      supabase.from('services').select('name, price, duration').eq('business_id', businessId),
-    ]);
-
-    const systemPrompt = buildWhatsAppSystemPrompt(profile, faqs || [], services || []);
-    const aiResult = await generateAssistantReply({
-      message: customerText,
-      profile: profile || {},
-      conversation: [],
-      systemPrompt,
-      businessId,
-    });
-
-    await fetch(`https://graph.facebook.com/v18.0/${phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${decryptToken(connection.access_token)}`,
-      },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: customerNumber,
-        text: { body: aiResult.reply },
-      }),
-    });
-
-    await supabase.from('conversations').insert({
-      business_id: businessId,
-      customer_message: customerText,
-      ai_reply: aiResult.reply,
-      escalated: false,
-      booking_intent: aiResult.booked || false,
-    });
-  } catch (error) {
-    console.error('WhatsApp webhook error:', error);
+    return res.sendStatus(200);
+  } catch(error) {
+    console.error('WhatsApp durable ingestion failed:',error.message);
+    return res.status(503).json({error:'Webhook acceptance unavailable'});
   }
 });
 
