@@ -46,8 +46,8 @@ export async function fetchProfile(userId, email, userMetadata = {}) {
     .maybeSingle();
 
   if (error) {
-    console.error("fetchProfile error:", error);
-    return null;
+    // A failed lookup must never be confused with a missing business.
+    throw new Error("Unable to load your business account. Please retry.");
   }
   if (!data) return null;
 
@@ -101,8 +101,9 @@ export async function resolveSignedInUser(authUser, accessToken) {
 }
 
 export async function upsertProfile(userId, fields) {
-  const { error } = await supabase.from("profiles").upsert({
-    id: userId,
+  // Update display/configuration fields only. Creation and billing changes
+  // belong to the authenticated server provisioning/payment paths.
+  const changes = {
     name: fields.name,
     business: fields.business,
     business_type: fields.businessType,
@@ -111,12 +112,6 @@ export async function upsertProfile(userId, fields) {
     price: fields.price,
     hours: fields.hours,
     description: fields.description,
-    plan: fields.plan,
-    billing_period: fields.billingPeriod,
-    currency: fields.currency,
-    payment_status: fields.paymentStatus,
-    trial_active: fields.trialActive,
-    trial_ends_at: fields.trialEndsAt,
     assistant_name: fields.assistantName,
     tone: fields.tone,
     greeting: fields.greeting,
@@ -124,19 +119,20 @@ export async function upsertProfile(userId, fields) {
     hours_json: fields.hoursJson,
     address: fields.address,
     city_state_zip: fields.cityStateZip,
-  });
+  };
+  const patch = Object.fromEntries(Object.entries(changes).filter(([, value]) => value !== undefined));
+  const { data, error } = await supabase.from("profiles")
+    .update(patch).eq("id", userId).select("id").maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error("Business profile is missing or access was denied.");
 
-  if (error) {
-    console.error("upsertProfile error:", error);
-    throw error;
+  if (typeof fields.assistantLive === "boolean") {
+    const { error: metadataError } = await supabase.auth.updateUser({
+      data: { assistant_live: fields.assistantLive },
+    });
+    if (metadataError) throw metadataError;
   }
-
-  const { error: metadataError } = await supabase.auth.updateUser({
-    data: { assistant_live: fields.assistantLive !== false },
-  });
-  if (metadataError) console.error("assistant status save error:", metadataError);
 }
-
 
 export function TextField({ label, type = "text", icon: Icon, value, onChange, placeholder }) {
   const [show, setShow] = useState(false);
