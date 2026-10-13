@@ -18,3 +18,11 @@ test("hours summary includes only stored times and the declared timezone", () =>
   assert.equal(summarizeWorkingHours([{ day: "Monday", open: "09:00", close: "18:00", closed: false }], "Africa/Lagos"),
     "Monday: 09:00-18:00 (Africa/Lagos)");
 });
+
+
+test("brand-new businesses are not assigned fictional hours", () => {
+  const schedule = normalizeWorkingHours([{ day: "Monday", open: "", close: "", closed: true }]);
+  assert.equal(schedule[0].open, "");
+  assert.equal(schedule[0].close, "");
+  assert.match(validateWorkingHours([{ ...schedule[0], closed: false }]), /after opening/);
+});
