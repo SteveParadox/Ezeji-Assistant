@@ -15,6 +15,7 @@ import { resolveDashboardTab, dashboardUrlForTab } from "./dashboardNavigation";
 import { ChatWidgetDemo } from "./chatWidget";
 import { isUsablePublicBusiness } from "./chatRequest";
 import { requiresCoreBusinessSetup } from "./onboardingState";
+import { paymentVerificationIsSettled } from "./paymentConfirmation";
 
 function getInitialViewFromUrl() {
   if (typeof window === "undefined") return "landing";
@@ -65,20 +66,16 @@ export default function NightlineApp() {
     const selection = selectedPaidPlan(getStoredPlanSelection());
     const checkoutReturned = new URLSearchParams(window.location.search).get("checkout") === "success";
     const selectedPlanActive = isSelectedPlanActive(profile, selection);
-    if (selectedPlanActive) {
-      window.localStorage.removeItem("nightline-plan-selection");
-      if (checkoutReturned) {
-        // Otherwise refreshing a settled checkout would re-enter paymentPending
-        // after the selected plan is cleared from local storage.
-        const url = new URL(window.location.href);
-        url.searchParams.delete("checkout");
-        url.searchParams.delete("reference");
-        window.history.replaceState(null, "", url.pathname + url.search);
-      }
+
+    // An existing active plan is not proof that a NEW Paystack checkout
+    // succeeded. Never clear the provider reference before verification.
+    if (!profile.isStaff && checkoutReturned) {
+      setView("paymentPending");
+      return;
     }
-    if (!profile.isStaff && checkoutReturned && !selectedPlanActive) {
-      setView("paymentPending"); // Active on a different plan is NOT this payment.
-    } else if (!profile.isStaff && selection && !selectedPlanActive && !requiresCoreBusinessSetup(profile)) {
+    if (selectedPlanActive) window.localStorage.removeItem("nightline-plan-selection");
+
+    if (!profile.isStaff && selection && !selectedPlanActive && !requiresCoreBusinessSetup(profile)) {
       setView("checkout");
     } else {
       const fallback = profile.isStaff ? "bookings" : requiresCoreBusinessSetup(profile) ? "gettingStarted" : "overview";
@@ -271,15 +268,17 @@ export default function NightlineApp() {
     if (!freshSession) throw new Error("Your session has expired. Sign in again.");
     const params = new URLSearchParams(window.location.search);
     const reference = params.get("reference") || window.localStorage.getItem("ezeji-last-checkout-ref");
-    if (reference && /^[A-Za-z0-9._-]{1,120}$/.test(reference)) {
-      const response = await fetch(`${API_BASE_URL}/verify-paystack/${encodeURIComponent(reference)}`, {
-        headers: { Authorization: `Bearer ${freshSession.access_token}` },
-      });
-      const verification = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(verification.error || "Payment verification unavailable.");
-      if (verification.requiresReview) throw new Error("Your payment needs manual reconciliation; no new access has been granted.");
-      if (verification.status === "failed") throw new Error("This Paystack payment did not succeed.");
+    if (!reference || !/^[A-Za-z0-9._-]{1,120}$/.test(reference)) {
+      throw new Error("The checkout reference is missing or invalid. Contact support before attempting another payment.");
     }
+    const response = await fetch(`${API_BASE_URL}/verify-paystack/${encodeURIComponent(reference)}`, {
+      headers: { Authorization: `Bearer ${freshSession.access_token}` },
+    });
+    const verification = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(verification.error || "Payment verification unavailable.");
+    if (verification.requiresReview) throw new Error("Your payment needs manual reconciliation; no new access has been granted.");
+    if (verification.status === "failed") throw new Error("This Paystack payment did not succeed.");
+    if (!paymentVerificationIsSettled(verification)) return false;
     const current = await fetchProfile(freshSession.user.id, freshSession.user.email, freshSession.user.user_metadata);
     const selection = selectedPaidPlan(getStoredPlanSelection());
     // Without a saved expected plan, an old active subscription is not proof
@@ -358,7 +357,7 @@ export default function NightlineApp() {
       {view === "resetPassword" && <ResetPasswordScreen go={go} />}
       {view === "businessSetup" && <BusinessSetupScreen go={go} session={session} onReady={finishOwnerLogin} />}
       {view === "paymentPending" && <PaymentPendingScreen onCheck={checkPaymentConfirmation}
-        onDashboard={() => { clearCheckoutCallback(); window.localStorage.removeItem("nightline-plan-selection"); setDashTab("billing"); setView("dashboard"); }} />}
+        onDashboard={() => { setDashTab("billing"); setView("dashboard"); }} />}
       {view === "landing" && (
         <NightlineLanding
           user={user}
