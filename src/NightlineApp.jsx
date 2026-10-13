@@ -13,6 +13,7 @@ import {
 import { DashboardShell, DASHBOARD_PAGES } from "./dashboardPages";
 import { resolveDashboardTab, dashboardUrlForTab } from "./dashboardNavigation";
 import { ChatWidgetDemo } from "./chatWidget";
+import { isUsablePublicBusiness } from "./chatRequest";
 
 function getInitialViewFromUrl() {
   if (typeof window === "undefined") return "landing";
@@ -38,6 +39,7 @@ export default function NightlineApp() {
   const [authError, setAuthError] = useState("");
   const [publicChatProfile, setPublicChatProfile] = useState(null);
   const [publicChatLoading, setPublicChatLoading] = useState(false);
+  const [publicChatError, setPublicChatError] = useState("");
   const authRun = useRef(0);
   const callbackPending = useRef(hasAuthCallback(readAuthCallback()));
   const recoveryMode = useRef(
@@ -151,14 +153,32 @@ export default function NightlineApp() {
   }, [view, restoreScroll, landingScrollY]);
 
   useEffect(() => {
+    if (getInitialViewFromUrl() !== "chatDemo") return;
     const businessId = getBusinessIdFromUrl();
-    if (getInitialViewFromUrl() === "chatDemo" && businessId) {
-      setPublicChatLoading(true);
-      fetchPublicProfile(businessId).then((profile) => {
-        setPublicChatProfile(profile);
-        setPublicChatLoading(false);
-      }).catch(() => setPublicChatLoading(false));
+    if (!businessId) {
+      setPublicChatError("This customer chat link is missing its business identifier.");
+      return;
     }
+    let cancelled = false;
+    setPublicChatError("");
+    setPublicChatLoading(true);
+    fetchPublicProfile(businessId).then((profile) => {
+      if (cancelled) return;
+      if (!isUsablePublicBusiness(profile, businessId)) {
+        setPublicChatError("This business chat link is invalid or unavailable.");
+        setPublicChatProfile(null);
+      } else {
+        setPublicChatProfile(profile);
+      }
+    }).catch(() => {
+      if (!cancelled) {
+        setPublicChatProfile(null);
+        setPublicChatError("Business chat is temporarily unavailable. Please try again later.");
+      }
+    }).finally(() => {
+      if (!cancelled) setPublicChatLoading(false);
+    });
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -340,8 +360,15 @@ export default function NightlineApp() {
       {view === "checkout" && <CheckoutScreen go={go} user={user} />}
       {view === "chatDemo" && (
         publicChatLoading ? (
-          <div className="widget-demo-stage"><p className="widget-demo-caption">Loading assistant...</p></div>
-        ) : <ChatWidgetDemo user={publicChatProfile || user} />
+          <div className="widget-demo-stage"><p className="widget-demo-caption" role="status">Loading business chat...</p></div>
+        ) : publicChatError || !publicChatProfile ? (
+          <div className="widget-demo-stage">
+            <div className="panel" role="alert">
+              <h1 className="panel-title">Customer chat unavailable</h1>
+              <p>{publicChatError || "This business is not available."}</p>
+            </div>
+          </div>
+        ) : <ChatWidgetDemo key={publicChatProfile.id} user={publicChatProfile} />
       )}
       {view === "dashboard" && user && (
         <DashboardShell go={(nextView) => (nextView === "login" ? handleLogout() : go(nextView))} active={dashTab} setActive={navigateDashboard} isStaff={user.isStaff}>
