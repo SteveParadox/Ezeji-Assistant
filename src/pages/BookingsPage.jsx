@@ -5,6 +5,7 @@ import { useConfirmation, EmptyState, Skeleton, TableFrame, StatusBadge } from "
 import { Trash2, Search, CalendarDays } from "lucide-react";
 import { hasActivePremiumPlan } from "../planAccess";
 import { filterBookings } from "../workspaceFilters";
+import { fetchAllPages } from "../dataPaging";
 
 export function BookingsPage({ user }) {
   const confirm = useConfirmation();
@@ -23,17 +24,23 @@ export function BookingsPage({ user }) {
       return;
     }
     let cancelled = false;
-    supabase
+    setLoading(true);
+    setError("");
+    fetchAllPages((offset, limit) => supabase
       .from("bookings")
-      .select("id, customer_name, customer_contact, service, booking_date, booking_time, notes, status, created_at")
+      .select("id, customer_name, customer_contact, service, booking_date, booking_time, notes, status, created_at", { count: offset === 0 ? "exact" : undefined })
       .eq("business_id", user.id)
       .order("created_at", { ascending: false })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error) setError("Could not load bookings. Return to this page to retry.");
-        setBookings(data || []);
-        setLoading(false);
-      });
+      .order("id", { ascending: false })
+      .range(offset, offset + limit - 1)
+    ).then((data) => {
+      if (cancelled) return;
+      setBookings(data);
+    }).catch(() => {
+      if (!cancelled) setError("Could not load all bookings. Retry by reopening this page.");
+    }).finally(() => {
+      if (!cancelled) setLoading(false);
+    });
     return () => { cancelled = true; };
   }, [user?.id, canManageBookings]);
 
