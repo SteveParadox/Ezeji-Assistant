@@ -101,9 +101,14 @@ export async function fetchProfile(userId, email, userMetadata = {}) {
 export async function resolveSignedInUser(authUser, accessToken) {
   return resolveSignedInUserWith(authUser, accessToken, {
     lookupProfile: fetchProfile,
-    lookupStaff: (token) => fetch(`${API_BASE_URL}/staff/me`, {
-      headers: { Authorization: `Bearer ${token}` },
-    }),
+    lookupStaff: (token) => {
+      const selected = typeof sessionStorage !== "undefined"
+        ? sessionStorage.getItem("ezeji-staff-business") : null;
+      const query = selected ? "?businessId=" + encodeURIComponent(selected) : "";
+      return fetch(`${API_BASE_URL}/staff/me${query}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    },
   });
 }
 
