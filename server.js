@@ -5,7 +5,6 @@ import crypto from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { attachStaffRoutes } from './server/staffRoutes.js';
 import { ensureOwnerBusiness } from './server/businessProvisioning.js';
-import { isSameActiveSubscription } from './server/paymentReplay.js';
 import { newPaystackReference, PAYSTACK_REFERENCE_PATTERN, parseVerifiedPaystackTransaction, paymentMatchesAttempt, isTrustedPaystackCheckoutUrl } from './server/paystackSettlement.js';
 import { attachWhatsAppRoutes } from './server/whatsappConnections.js';
 import { serviceDurationMinutes, validateBookingWindow } from './server/bookingValidation.js';
@@ -113,35 +112,6 @@ function cleanAssistantReply(text) {
     .replace(/^\s*#+\s*/gm, '')
     .replace(/[ \t]{2,}/g, ' ')
     .trim();
-}
-
-// Real conversation limits per plan.
-const PLAN_LIMITS = {
-  '14-day trial': 100,
-  'Starter': 500,
-  'Professional': 2500,
-  'Business': Infinity,
-};
-
-async function checkUsageLimit(businessId) {
-  if (!supabase) throw new Error('Usage database unavailable');
-  const result=await supabase.from('profiles').select('plan,payment_status,trial_active,trial_ends_at').eq('id',businessId).maybeSingle();
-  if (result.error || !result.data) throw new Error('Business entitlement unavailable');
-  const plan=result.data.plan;
-  if (plan==='14-day trial' && (result.data.trial_active!==true || !result.data.trial_ends_at || Date.parse(result.data.trial_ends_at)<=Date.now())) return {allowed:false,reason:'trial-expired'};
-  if (plan!=='14-day trial') {
-    const { data: allowed, error: entitlementError } = await supabase.rpc('has_current_paid_entitlement', {p_business_id:businessId});
-    if(entitlementError) throw entitlementError;
-    if(allowed !== true) return {allowed:false,reason:'subscription-expired'};
-  }
-  const limit=PLAN_LIMITS[plan];
-  if (limit===undefined) return {allowed:false,reason:'unknown-plan'};
-  if (limit===Infinity) return {allowed:true,limit};
-  const now=new Date();
-  const since=plan==='14-day trial' ? new Date(0).toISOString() : new Date(Date.UTC(now.getUTCFullYear(),now.getUTCMonth(),1)).toISOString();
-  const {count,error}=await supabase.from('conversations').select('id',{count:'exact',head:true}).eq('business_id',businessId).gte('created_at',since);
-  if (error) throw new Error('Usage count unavailable');
-  return {allowed:(count||0)<limit,count:count||0,limit};
 }
 
 app.post('/assistant-reply', async (req,res)=>{
@@ -626,18 +596,6 @@ app.post('/webhook/whatsapp', async (req, res) => {
     return res.status(503).json({error:'Webhook acceptance unavailable'});
   }
 });
-
-function buildWhatsAppSystemPrompt(profile, faqs, services) {
-  const businessName = profile?.business || 'the business';
-  const parts = [
-    `You are a warm, practical concierge for ${businessName}, replying over WhatsApp. Keep replies short and natural, like a real text message - not long paragraphs.`,
-  ];
-  if (profile?.hours) parts.push(`Hours: ${profile.hours}`);
-  if (profile?.description) parts.push(`About the business: ${profile.description}`);
-  if (services.length) parts.push(`Services:\n${services.map((s) => `- ${s.name}: ${s.price}`).join('\n')}`);
-  if (faqs.length) parts.push(`FAQs:\n${faqs.map((f) => `Q: ${f.question}\nA: ${f.answer}`).join('\n')}`);
-  return parts.join('\n\n');
-}
 
 if (!process.env.VERCEL) {
   app.listen(port, () => {
