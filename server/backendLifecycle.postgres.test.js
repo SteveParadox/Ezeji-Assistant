@@ -59,12 +59,12 @@ test("Ezeji new full migration bootstrap and transactional invariants",options,a
  for(const filename of fs.readdirSync(root).filter(f=>f.endsWith(".sql")).sort()) {
    migration(path.join(root,filename));
  }
- await t.test("20 overlapping settlements create exactly one paid invoice",async()=>{
+ await t.test("50 overlapping settlements create exactly one paid invoice",async()=>{
    const owner=uuid(),reference=ref(),providerId=uuid();
    seedOwner(owner);attempt(owner,reference);
    const cmd=promisify(execFile);
-   const results=await Promise.all(Array.from({length:20},()=>cmd("psql",[...args,"-c",settle(reference,3500000,providerId)])));
-   assert.equal(results.filter(x=>/already_settled/.test(x.stdout)).length,19);
+   const results=await Promise.all(Array.from({length:50},()=>cmd("psql",[...args,"-c",settle(reference,3500000,providerId)])));
+   assert.equal(results.filter(x=>/already_settled/.test(x.stdout)).length,49);
    assert.equal(count("public.invoices","provider_reference",reference),1);
    assert.equal(count("public.subscriptions","business_id",owner),1);
  });
@@ -84,26 +84,44 @@ test("Ezeji new full migration bootstrap and transactional invariants",options,a
      query("drop trigger fail_test_invoice on public.invoices;drop function public.fail_test_invoice()");
    }
  });
- await t.test("20 concurrent trial reservations never oversubscribe remaining capacity",async()=>{
+ await t.test("100 concurrent trial reservations never oversubscribe remaining capacity",async()=>{
    const owner=uuid();seedOwner(owner);
    query(roleSql(`insert into public.usage_periods(business_id,period_key,consumed,reserved)
     values('${owner}','trial',98,0)`));
    const cmd=promisify(execFile);
-   const results=await Promise.all(Array.from({length:20},(_,i)=>
+   const results=await Promise.all(Array.from({length:100},(_,i)=>
      cmd("psql",[...args,"-c",roleSql(`select public.reserve_ai_usage(
      '${owner}','trial','${uuid()}')`)])
      .then(()=>true).catch(()=>false)));
    assert.equal(results.filter(Boolean).length,2);
    assert.equal(query(`select consumed+reserved from public.usage_periods where business_id='${owner}'`).output,"100");
  });
+ await t.test("duplicate reservation keys never authorize two concurrent AI runs", async()=>{
+   const owner=uuid(),key="same-request-"+uuid();
+   seedOwner(owner);
+   const cmd=promisify(execFile);
+   const results=await Promise.all(Array.from({length:10},()=>
+     cmd("psql",[...args,"-c",roleSql(`select public.reserve_ai_usage('${owner}','trial','${key}')`)])
+       .then(()=>true).catch(()=>false)));
+   assert.equal(results.filter(Boolean).length,1);
+   assert.equal(query(`select consumed+reserved from public.usage_periods
+     where business_id='${owner}' and period_key='trial'`).output,"1");
+ });
+ await t.test("incomplete confirmed bookings are rejected",()=>{
+   const owner=uuid();seedOwner(owner);
+   assert.equal(query(roleSql(`insert into public.bookings(business_id,status)
+      values('${owner}','confirmed')`),true).ok,false);
+ });
  await t.test("exclusive confirmed booking ranges cannot overlap",()=>{
    const owner=uuid();seedOwner(owner);
-   const a=uuid(),b=uuid();
-   query(roleSql(`insert into public.bookings(id,business_id,status,starts_at,ends_at,resource_id)
-     values('${a}','${owner}','confirmed',now()+interval '2 days',
-     now()+interval '2 days 1 hour','chair1')`));
-   assert.equal(query(roleSql(`insert into public.bookings(id,business_id,status,starts_at,ends_at,resource_id)
-     values('${b}','${owner}','confirmed',now()+interval '2 days 30 minutes',
-     now()+interval '2 days 90 minutes','chair1')`),true).ok,false);
+   const a=uuid(),b=uuid(),service=uuid();
+   query(roleSql(`insert into public.services(id,business_id,name,duration)
+     values('${service}','${owner}','Haircut','60 mins')`));
+   query(roleSql(`insert into public.bookings(id,business_id,service_id,service,booking_date,booking_time,status,starts_at,ends_at,resource_id)
+     values('${a}','${owner}','${service}','Haircut',current_date+2,'14:00','confirmed',
+       now()+interval '2 days',now()+interval '2 days 1 hour','chair1')`));
+   assert.equal(query(roleSql(`insert into public.bookings(id,business_id,service_id,service,booking_date,booking_time,status,starts_at,ends_at,resource_id)
+     values('${b}','${owner}','${service}','Haircut',current_date+2,'14:30','confirmed',
+       now()+interval '2 days 30 minutes',now()+interval '2 days 90 minutes','chair1')`),true).ok,false);
  });
 });
