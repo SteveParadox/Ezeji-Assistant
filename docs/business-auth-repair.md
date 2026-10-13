@@ -70,3 +70,26 @@ GitHub Actions on this branch currently reports failed jobs and connector log re
 Review existing public.profiles SELECT policies for cross-tenant data exposure: this migration preserves unknown policies to avoid breaking public chat. Check existing grants and other policies before claiming complete multi-tenant isolation.
 
 Migration rollback: restore the previously backed-up protect_paid_plan_fields() function and its trigger; remove only newly named Ezeji policies added by this migration, leaving other policies and data intact. Revert frontend/backend code as one deployment unit. Do not delete profiles or invoices.
+
+
+## Verification evidence collected 2026-10-13
+
+A source-derived JavaScript smoke harness fetched the exact committed source files
+from the PR branch and executed 12 checks covering plan allowlisting,
+signup metadata redaction, callback detection, recovery marker expiry,
+safe first-time provisioning, retry idempotency, missing-profile protection,
+null-session signup, and OTP session exchange. All 12 checks passed.
+
+A second harness instantiated the actual server.js route handlers with mocked
+Supabase and Paystack clients and executed 8 checks: unauthenticated/invalid
+token rejection, unconfirmed email rejection, authenticated ownership binding,
+privilege flag stripping, authorized checkout despite a spoofed businessId,
+unsupported plan rejection, and active-plan duplicate purchase rejection.
+All 8 checks passed.
+
+These are **mock-backed smoke checks**, not the repository's npm test suite, real
+database isolation tests, Paystack integration tests, or browser E2E. The GitHub
+Actions runs currently report failure with no recorded steps; root cause
+cannot be determined from the connected log endpoint. The rollout gate remains
+blocked until npm ci, npm test, npm run lint, npm run build and staging flows
+all succeed with evidence.
