@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { getPlanDetails } from "./billingLogic";
 import { Mail, Lock, CheckCircle2, Building2 } from "lucide-react";
@@ -361,21 +361,31 @@ export function AuthErrorScreen({ go, error, retry }) {
 
 export function PaymentPendingScreen({ onCheck, onDashboard }) {
   const [checking, setChecking] = useState(false);
-  const [message, setMessage] = useState("Your payment is being verified. Your plan only activates after Paystack confirms it.");
+  const [message, setMessage] = useState("Verifying this checkout with Paystack. Your plan activates only after settlement.");
+  const checkRef = useRef(onCheck);
+  const inFlight = useRef(false);
+  checkRef.current = onCheck;
+
   const refresh = async () => {
-    if (checking) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setChecking(true);
     try {
-      const active = await onCheck();
-      if (!active) setMessage("Payment has not been confirmed yet. You can retry without paying a second time.");
+      const active = await checkRef.current();
+      if (!active) setMessage("This payment is still pending. Please verify again before starting another checkout.");
     } catch (error) {
       setMessage(error.message || "Unable to check payment status. Please retry.");
     } finally {
+      inFlight.current = false;
       setChecking(false);
     }
   };
+
+  // A Paystack callback should immediately reconcile the exact reference.
+  // Ref gating prevents overlapping manual/automatic requests.
+  useEffect(() => { void refresh(); }, []);
   return (
-    <AuthShell footer={<button className="link-btn" onClick={onDashboard}>Open dashboard</button>}>
+    <AuthShell footer={<button className="link-btn" onClick={onDashboard}>Open billing without dismissing payment verification</button>}>
       <h1 className="auth-title">Checking your payment</h1>
       <p className="auth-sub">{message}</p>
       <button className="btn btn--amber btn--full" onClick={refresh} disabled={checking}>
