@@ -16,3 +16,9 @@ export function validatePaymentReplay(prior, payment) {
   if (prior.status === "paid") return "already_settled";
   throw new Error("Previously recorded payment is not eligible for activation");
 }
+
+// A different billing term for an active plan is a legitimate upgrade.
+export function isSameActiveSubscription(profile, plan, billingPeriod) {
+  return profile?.payment_status === "active" &&
+    profile.plan === plan && profile.billing_period === billingPeriod;
+}
