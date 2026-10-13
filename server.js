@@ -208,6 +208,7 @@ app.post('/create-checkout-session', async (req,res)=>{
     if(!bearer) return res.status(401).json({error:'Sign in required'});
     const {data:auth,error:authError}=await supabase.auth.getUser(bearer[1]);
     if(authError||!auth?.user) return res.status(401).json({error:'Invalid session'});
+    if (!auth.user.email_confirmed_at) return res.status(403).json({error:'Verify your email before checkout'});
     const {data:business,error:businessError}=await supabase.from('profiles').select('id,business,plan,payment_status,billing_period').eq('id',auth.user.id).maybeSingle();
     if(businessError||!business) return res.status(403).json({error:'Business account not found'});
     const {plan,billingPeriod}=req.body||{};
