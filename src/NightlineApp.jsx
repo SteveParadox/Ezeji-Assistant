@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import NightlineLanding from "./NightlineLanding";
 import { supabase } from "./supabaseClient";
-import { fetchPublicProfile, fetchProfile, resolveSignedInUser, upsertProfile, getStoredPlanSelection } from "./shared";
+import { fetchPublicProfile, fetchProfile, resolveSignedInUser, upsertProfile, getStoredPlanSelection, API_BASE_URL } from "./shared";
 import {
   LoginScreen, SignupScreen, CheckoutScreen, ForgotScreen, VerificationPendingScreen,
   ResetPasswordScreen, BusinessSetupScreen, AuthErrorScreen, PaymentPendingScreen,
@@ -213,12 +213,24 @@ export default function NightlineApp() {
     const url = new URL(window.location.href);
     url.searchParams.delete("checkout");
     url.searchParams.delete("reference");
+    window.localStorage.removeItem("ezeji-last-checkout-ref");
     window.history.replaceState(null, "", url.pathname + url.search);
   };
 
   const checkPaymentConfirmation = async () => {
     const { data: { session: freshSession } } = await supabase.auth.getSession();
     if (!freshSession) throw new Error("Your session has expired. Sign in again.");
+    const params = new URLSearchParams(window.location.search);
+    const reference = params.get("reference") || window.localStorage.getItem("ezeji-last-checkout-ref");
+    if (reference && /^[A-Za-z0-9._-]{1,120}$/.test(reference)) {
+      const response = await fetch(`${API_BASE_URL}/verify-paystack/${encodeURIComponent(reference)}`, {
+        headers: { Authorization: `Bearer ${freshSession.access_token}` },
+      });
+      const verification = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(verification.error || "Payment verification unavailable.");
+      if (verification.requiresReview) throw new Error("Your payment needs manual reconciliation; no new access has been granted.");
+      if (verification.status === "failed") throw new Error("This Paystack payment did not succeed.");
+    }
     const current = await fetchProfile(freshSession.user.id, freshSession.user.email, freshSession.user.user_metadata);
     const selection = selectedPaidPlan(getStoredPlanSelection());
     // Without a saved expected plan, an old active subscription is not proof
