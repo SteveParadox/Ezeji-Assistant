@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import { createClient } from "@supabase/supabase-js";
 import { decryptToken } from "../server/whatsappConnections.js";
+import { claimQueuedOutbound } from "../server/whatsappOutboxClaim.js";
 
 dotenv.config();
 for (const name of ["SUPABASE_URL","SUPABASE_SERVICE_ROLE_KEY","WHATSAPP_TOKEN_ENCRYPTION_KEY","GROQ_API_KEY"]) {
@@ -131,11 +132,7 @@ Hours: ${profile.hours||"unknown"}. About: ${profile.description||""}`},
       await saveEvent(event,{status:"review_required",lease_until:null,last_error:"Outbound delivery state requires inspection"});
       return;
     }
-    const {data:sendClaim,error:sendingError}=await db.from("whatsapp_outbound_messages")
-      .update({status:"sending",updated_at:new Date().toISOString()})
-      .eq("id",latest.id).eq("status","queued")
-      .select("id").maybeSingle();
-    if(sendingError)throw sendingError;
+    const sendClaim=await claimQueuedOutbound(db,latest.id);
     if(!sendClaim) {
       // Another lease holder already claimed this outbound send.
       // PostgREST returns a success with zero rows when the CAS loses.
