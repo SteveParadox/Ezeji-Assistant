@@ -85,7 +85,8 @@ export function buildAssistantRequestPayload(message, profile = {}, conversation
 
   return {
     message: `${message || ''}`.trim(),
-    businessId: options.previewOnly ? null : profile?.id || null,
+    businessId: profile?.id || null,
+    preview: options.previewOnly === true,
     plan: profile?.plan || '14-day trial',
     profile: {
       business: context.businessName,
