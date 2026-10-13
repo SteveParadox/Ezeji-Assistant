@@ -29,6 +29,7 @@ export function parseVerifiedPaystackTransaction(payload, requestedReference) {
     p_currency: data.currency.toUpperCase(),
     p_customer_email: data.customer.email.trim().toLowerCase(),
     p_provider_transaction_id: String(data.id),
+    p_paid_at: verifiedPaidAt(data.paid_at || data.paidAt),
   };
 }
 
@@ -52,4 +53,17 @@ export function isTrustedPaystackCheckoutUrl(value) {
   } catch {
     return false;
   }
+}
+
+export function verifiedPaidAt(value) {
+  if (typeof value !== "string" || !Number.isFinite(Date.parse(value))) {
+    const error = new Error("Paystack did not provide a valid paid timestamp");
+    error.status = 422;
+    throw error;
+  }
+  const date = new Date(value);
+  if (date.getTime() > Date.now() + 5 * 60_000) {
+    throw Object.assign(new Error("Provider payment timestamp is in the future"), { status: 422 });
+  }
+  return date.toISOString();
 }
