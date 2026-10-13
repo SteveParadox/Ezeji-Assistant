@@ -8,6 +8,7 @@ import { ensureOwnerBusiness } from './server/businessProvisioning.js';
 import { isSameActiveSubscription } from './server/paymentReplay.js';
 import { newPaystackReference, PAYSTACK_REFERENCE_PATTERN, parseVerifiedPaystackTransaction, paymentMatchesAttempt, isTrustedPaystackCheckoutUrl } from './server/paystackSettlement.js';
 import { attachWhatsAppRoutes } from './server/whatsappConnections.js';
+import { serviceDurationMinutes, validateBookingWindow } from './server/bookingValidation.js';
 
 dotenv.config();
 
@@ -466,6 +467,55 @@ app.get('/verify-paystack/:reference', async (req, res) => {
   } catch (error) {
     console.error('Paystack verification error:', error.message);
     return res.status(error.status || 503).json({ error: 'Unable to verify transaction' });
+  }
+});
+
+app.post('/booking-requests', async (req,res) => {
+  try {
+    if (!supabase) return res.status(503).json({error:'Booking database unavailable'});
+    const {businessId,serviceId,customerName,customerContact,startAt,requestId} = req.body || {};
+    if (![businessId,serviceId,requestId].every(id=>typeof id==='string'&&/^[0-9a-f-]{36}$/i.test(id))) {
+      return res.status(400).json({error:'Invalid booking identifiers'});
+    }
+    if (typeof customerName!=='string'||customerName.trim().length<2||customerName.length>120||
+        typeof customerContact!=='string'||customerContact.trim().length<5||customerContact.length>160) {
+      return res.status(400).json({error:'Customer name and contact are required'});
+    }
+    const [{data:business,error:profileError},{data:service,error:serviceError}] = await Promise.all([
+      supabase.from('profiles').select('id,plan,trial_active,trial_ends_at,timezone,hours_json')
+        .eq('id',businessId).maybeSingle(),
+      supabase.from('services').select('id,name,duration').eq('id',serviceId).eq('business_id',businessId).maybeSingle(),
+    ]);
+    if(profileError||serviceError) throw profileError||serviceError;
+    if(!business||!service) return res.status(404).json({error:'Business or service unavailable'});
+    if (business.plan==='14-day trial') {
+      if(!business.trial_active||Date.parse(business.trial_ends_at||'')<=Date.now()) {
+        return res.status(403).json({error:'Business is not accepting bookings'});
+      }
+    } else {
+      const {data:paid,error:paidError}=await supabase.rpc('has_current_paid_entitlement',{p_business_id:businessId});
+      if(paidError) throw paidError;
+      if(!paid) return res.status(403).json({error:'Business is not accepting bookings'});
+    }
+    const duration=serviceDurationMinutes(service.duration);
+    if(!duration) return res.status(422).json({error:'Business must set a valid service duration before bookings are accepted'});
+    let slot;
+    try { slot=validateBookingWindow({
+      startAt,durationMinutes:duration,
+      timezone:business.timezone||'Africa/Lagos',hoursJson:business.hours_json,
+    }); } catch(error) { return res.status(422).json({error:error.message}); }
+    const {data:bookingId,error} = await supabase.rpc('create_pending_booking',{
+      p_business_id:businessId,p_customer_name:customerName.trim(),
+      p_customer_contact:customerContact.trim(),p_service_id:serviceId,
+      p_start:slot.start,p_end:slot.end,p_timezone:slot.timezone,
+      p_local_date:slot.localDate,p_local_time:slot.localTime,
+      p_source:'web_chat',p_request_id:requestId,
+    });
+    if(error) throw error;
+    return res.status(201).json({bookingId,status:'pending',message:'Booking request received. Staff confirmation is required.'});
+  } catch(error) {
+    console.error('Booking request error:',error.message);
+    return res.status(503).json({error:'Unable to save booking request'});
   }
 });
 
