@@ -11,6 +11,10 @@ export function AISettingsPage({ user, onUpdateUser }) {
   const [greeting, setGreeting] = useState(user?.greeting || `Hi! I'm ${user?.business || "your business"}'s assistant - ask me about hours, pricing, or booking.`);
   const [escalationKeywords, setEscalationKeywords] = useState(user?.escalationKeywords || "refund, complaint, emergency");
   const [saveState, setSaveState] = useState("idle");
+  const edit = (setter) => event => {
+    setter(event.target.value);
+    setSaveState("idle");
+  };
 
   const save = async () => {
     if (saveState === "saving") return;
@@ -38,21 +42,21 @@ export function AISettingsPage({ user, onUpdateUser }) {
         </div>
       ) : (
         <div className="panel form-panel">
-          <TextField label="Assistant name" value={assistantName} onChange={(e) => setAssistantName(e.target.value)} />
+          <TextField label="Assistant name" value={assistantName} onChange={edit(setAssistantName)} />
           <label className="field">
             <span className="field-label">Tone of voice</span>
-            <select className="field-input field-select" value={tone} onChange={(e) => setTone(e.target.value)}>
+            <select className="field-input field-select" value={tone} onChange={edit(setTone)}>
               {["Friendly & warm", "Professional", "Playful", "Concise"].map((t) => <option key={t}>{t}</option>)}
             </select>
           </label>
           <label className="field">
             <span className="field-label">Greeting message</span>
-            <textarea className="field-input field-textarea" rows={2} value={greeting} onChange={(e) => setGreeting(e.target.value)} />
+            <textarea className="field-input field-textarea" rows={2} value={greeting} onChange={edit(setGreeting)} />
           </label>
-          <TextField label="Escalation keywords (comma separated)" value={escalationKeywords} onChange={(e) => setEscalationKeywords(e.target.value)} />
+          <TextField label="Escalation keywords (comma separated)" value={escalationKeywords} onChange={edit(setEscalationKeywords)} />
           {saveState === "saved" && <p className="save-status" role="status">Saved successfully</p>}
           {saveState === "error" && <p className="auth-error" role="alert">Could not save assistant settings. Retry.</p>}
-          <button className="btn btn--amber" disabled={saveState === "saving"} onClick={save}>{saveState === "saving" ? "Saving..." : "Save settings"}</button>
+          <button className="btn btn--amber" disabled={saveState === "saving" || !canCustomize} onClick={save}>{saveState === "saving" ? "Saving..." : "Save settings"}</button>
         </div>
       )}
       <section className="panel preview-panel"><p className="panel-eyebrow">Try it privately</p><h2 className="panel-title">Assistant preview</h2>
