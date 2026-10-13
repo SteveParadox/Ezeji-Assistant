@@ -1,5 +1,4 @@
 import dotenv from "dotenv";
-import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { decryptToken } from "../server/whatsappConnections.js";
 
@@ -59,6 +58,13 @@ async function processEvent(event) {
   });
   if(reserveError){
     // For quota denial do not retry indefinitely and burn Meta/Groq resources.
+    if(reserveError.code==="P0003") {
+      // A previous attempt reached reservation, but no durable reply was
+      // found. Never repeat a chargeable provider call for the same key.
+      await saveEvent(event,{status:"review_required",lease_until:null,
+        last_error:"Previous AI attempt outcome uncertain; manual review required"});
+      return;
+    }
     if(reserveError.code==="P0001"||reserveError.code==="42501"){
       await saveEvent(event,{status:"dead",lease_until:null,last_error:"AI quota unavailable"});
       return;
@@ -85,7 +91,7 @@ Hours: ${profile.hours||"unknown"}. About: ${profile.description||""}`},
     if(!response.ok)throw new Error("Groq request failed");
     const ai=await response.json();
     const reply=String(ai.choices?.[0]?.message?.content||"A team member will follow up.").slice(0,4000);
-    const {data:out,error:outWriteError}=await db.from("whatsapp_outbound_messages")
+    const {error:outWriteError}=await db.from("whatsapp_outbound_messages")
       .upsert({inbound_event_id:event.id,business_id:event.business_id,
         recipient_phone:event.sender_phone,reply_text:reply,status:"queued"},
       {onConflict:"inbound_event_id",ignoreDuplicates:true})
