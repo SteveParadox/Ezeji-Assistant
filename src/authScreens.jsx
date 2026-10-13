@@ -200,7 +200,7 @@ export function CheckoutScreen({ go, user }) {
           </>
         ) : user.isStaff ? (
           <p className="auth-error">Only a business owner can manage subscription checkout.</p>
-        ) : user.paymentStatus === "active" && user.plan === selection?.plan ? (
+        ) : user.paymentStatus === "active" && user.plan === selection?.plan && user.billingPeriod === selection?.billingPeriod ? (
           <>
             <p>You're already subscribed to this plan.</p>
             <button className="btn btn--amber btn--full" onClick={() => go("dashboard")}>Dashboard</button>
