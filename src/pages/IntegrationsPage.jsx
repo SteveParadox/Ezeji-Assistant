@@ -51,9 +51,18 @@ export function IntegrationsPage({ user }) {
     }catch(error){setConnectionError(error.message||"Could not disconnect WhatsApp");}
   };
 
-  const webhookUrl = typeof window !== "undefined"
-    ? (import.meta.env.VITE_WHATSAPP_WEBHOOK_URL || "http://localhost:5174/webhook/whatsapp")
-    : "";
+  // Never suggest localhost as a production callback: Meta cannot reach it.
+  // The deployed backend operator must configure a public HTTPS callback and
+  // matching server-side verification token before a WhatsApp integration works.
+  const configuredWebhookUrl = import.meta.env.VITE_WHATSAPP_WEBHOOK_URL || "";
+  const webhookUrlIsValid = /^https:\/\//i.test(configuredWebhookUrl) && (() => {
+    try {
+      const address = new URL(configuredWebhookUrl);
+      return !["localhost", "127.0.0.1", "[::1]"].includes(address.hostname);
+    } catch {
+      return false;
+    }
+  })();
 
   return (
     <div>
@@ -98,12 +107,19 @@ export function IntegrationsPage({ user }) {
       <div className="panel">
         <h2 className="panel-title">Webhook setup (one-time, in Meta's dashboard)</h2>
         <p className="panel-help">
-          In your Meta app's WhatsApp -&gt; Configuration page, set the Callback URL and Verify Token to these values, so Meta knows where to send incoming messages:
+          In your Meta app's WhatsApp configuration, use your publicly deployed HTTPS webhook callback and the verification token configured securely on the backend. The verification token must never be exposed in the browser.
         </p>
-        <div className="form-panel">
-          <TextField label="Callback URL" value={webhookUrl} onChange={() => {}} />
-          <p className="panel-help" style={{ marginTop: -8 }}>Meta must be able to reach this URL over HTTPS. Set VITE_WHATSAPP_WEBHOOK_URL to your deployed public webhook URL before connecting a production number.</p>
-        </div>
+        {webhookUrlIsValid ? (
+          <label className="field">
+            <span className="field-label">Deployed callback URL (read only)</span>
+            <input className="field-input" readOnly value={configuredWebhookUrl} onFocus={event => event.target.select()} />
+          </label>
+        ) : (
+          <p className="auth-error" role="status">
+            No valid public HTTPS callback is configured. Set VITE_WHATSAPP_WEBHOOK_URL to your deployed backend's webhook URL. A localhost URL cannot receive Meta events.
+          </p>
+        )}
+        <p className="panel-help">Saving a phone number and access token does not prove webhook delivery is configured. Confirm the callback and event subscription in Meta before going live.</p>
       </div>
         </>
       )}
