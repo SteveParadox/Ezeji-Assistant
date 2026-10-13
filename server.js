@@ -398,6 +398,33 @@ app.post('/webhooks/paystack', async (req, res) => {
 
   try {
     const event = req.body || {};
+    if(event.event === 'refund.processed') {
+      const reference = event.data?.transaction_reference;
+      const refundReference = event.data?.refund_reference;
+      const amount = Number(event.data?.amount);
+      if(!PAYSTACK_REFERENCE_PATTERN.test(reference||'')||
+         typeof refundReference!=='string'||refundReference.length<5||
+         !Number.isSafeInteger(amount)||amount<=0||event.data?.currency!=='NGN') {
+        return res.status(422).json({error:'Refund payload requires reconciliation'});
+      }
+      const providerResponse = await fetch('https://api.paystack.co/transaction/verify/'+encodeURIComponent(reference),{
+        headers:{Authorization:'Bearer '+process.env.PAYSTACK_SECRET_KEY},
+        signal:AbortSignal.timeout(15000),
+      });
+      if(!providerResponse.ok) throw settlementError('Refund verification unavailable');
+      const verified = await providerResponse.json();
+      // Refund notifications are signed, but also confirm the original charge
+      // is reversed before changing entitlements.
+      if(verified?.data?.reference!==reference || verified?.data?.status!=='reversed') {
+        throw settlementError('Refund not yet confirmed as reversed');
+      }
+      const {data:outcome,error:refundError}=await supabase.rpc('record_verified_paystack_refund',{
+        p_reference:reference,p_refund_reference:refundReference,
+        p_amount:amount,p_currency:'NGN',
+      });
+      if(refundError)throw refundError;
+      return res.json({received:true,outcome});
+    }
     if (event.event !== 'charge.success') return res.json({ received: true, ignored: true });
     if (event.data?.status !== 'success') {
       return res.status(422).json({ error: 'Charge event was not successful' });
