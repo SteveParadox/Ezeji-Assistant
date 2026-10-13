@@ -512,8 +512,8 @@ export function ServicesPage({ user }) {
   );
 }
 
-const DEFAULT_HOURS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((d) => ({
-  day: d, open: d === "Sunday" ? "" : "9:00 AM", close: d === "Sunday" ? "" : "6:00 PM", closed: d === "Sunday",
+const DEFAULT_HOURS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"].map((day) => ({
+  day, open: "", close: "", closed: true,
 }));
 
 export function HoursLocationPage({ user, onUpdateUser }) {
@@ -564,7 +564,7 @@ export function HoursLocationPage({ user, onUpdateUser }) {
     <div>
       <div className="page-header">
         <div><h1 className="page-title">Hours & Location</h1>
-          <p className="page-sub">Set real opening and closing times. These details are used to answer customers.</p>
+          <p className="page-sub">Choose your actual open days and enter their opening and closing times. All days start closed until configured.</p>
         </div>
       </div>
       <div className="panel">
