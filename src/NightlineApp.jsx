@@ -14,6 +14,7 @@ import { DashboardShell, DASHBOARD_PAGES } from "./dashboardPages";
 import { resolveDashboardTab, dashboardUrlForTab } from "./dashboardNavigation";
 import { ChatWidgetDemo } from "./chatWidget";
 import { isUsablePublicBusiness } from "./chatRequest";
+import { requiresCoreBusinessSetup } from "./onboardingState";
 
 function getInitialViewFromUrl() {
   if (typeof window === "undefined") return "landing";
@@ -77,10 +78,10 @@ export default function NightlineApp() {
     }
     if (!profile.isStaff && checkoutReturned && !selectedPlanActive) {
       setView("paymentPending"); // Active on a different plan is NOT this payment.
-    } else if (!profile.isStaff && selection && !selectedPlanActive) {
+    } else if (!profile.isStaff && selection && !selectedPlanActive && !requiresCoreBusinessSetup(profile)) {
       setView("checkout");
     } else {
-      const fallback = profile.isStaff ? "bookings" : profile.description?.trim() ? "overview" : "gettingStarted";
+      const fallback = profile.isStaff ? "bookings" : requiresCoreBusinessSetup(profile) ? "gettingStarted" : "overview";
       setDashTab(resolveDashboardTab(window.location.search, !!profile.isStaff, fallback));
       setView("dashboard");
     }
@@ -353,7 +354,12 @@ export default function NightlineApp() {
             setLandingScrollY(window.scrollY);
             setRestoreScroll(true);
             if (selection) window.localStorage.setItem("nightline-plan-selection", JSON.stringify(selection));
-            go(user ? (selection?.mode === "paid" ? "checkout" : "dashboard") : "signup");
+            if (user && selection?.mode === "paid" && requiresCoreBusinessSetup(user)) {
+              setDashTab("gettingStarted");
+              go("dashboard");
+            } else {
+              go(user ? (selection?.mode === "paid" ? "checkout" : "dashboard") : "signup");
+            }
           }}
         />
       )}
@@ -372,7 +378,7 @@ export default function NightlineApp() {
       )}
       {view === "dashboard" && user && (
         <DashboardShell go={(nextView) => (nextView === "login" ? handleLogout() : go(nextView))} active={dashTab} setActive={navigateDashboard} isStaff={user.isStaff}>
-          <ActivePage key={`${user.id}:${user.isStaff ? "staff" : "owner"}:${dashTab}`} user={user} onUpdateUser={handleUpdateUser} onNavigate={navigateDashboard} />
+          <ActivePage key={`${user.id}:${user.isStaff ? "staff" : "owner"}:${dashTab}`} user={user} onUpdateUser={handleUpdateUser} onNavigate={navigateDashboard} onCheckout={() => go("checkout")} />
         </DashboardShell>
       )}
     </div>
