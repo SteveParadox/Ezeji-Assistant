@@ -95,7 +95,7 @@ function HeroChat() {
         </div>
         <div className="hero-chat-status">
           <span className="pulse-dot" />
-          <span className="hero-chat-status-label mono">AI online</span>
+          <span className="hero-chat-status-label mono">Illustrative demo</span>
         </div>
       </div>
       <div className="hero-chat-body">
@@ -177,11 +177,11 @@ function Hero({ onSignIn, onStartTrial }) {
     <section className="hero container">
       <div className="hero-copy">
         <p className="eyebrow mono">For restaurants, hotels, salons, clinics & more</p>
-        <h1 className="display hero-title">Someone always answers.</h1>
+        <h1 className="display hero-title">Help customers get answers, even after hours.</h1>
         <p className="body-lg hero-sub">
-          Ezeji Assistant learns your hours, prices, and services, then answers
-          customers the second they reach out - open or closed, day or
-          night - and brings in a person whenever it should.
+          Configure your services, prices and opening hours so your assistant
+          can answer common customer questions through supported channels.
+          Appointment requests remain pending until your team confirms them.
         </p>
         <div className="hero-actions">
           <button className="btn btn--amber btn--lg" onClick={() => onStartTrial?.({ plan: "14-day trial", mode: "trial" })}>Start your free trial</button>
