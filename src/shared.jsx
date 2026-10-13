@@ -15,28 +15,12 @@ export function Logo({ size = 18 }) {
 }
 
 export async function fetchPublicProfile(businessId) {
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, business, business_type, custom_business_type, service_name, price, hours, description")
-    .eq("id", businessId)
-    .maybeSingle();
-
-  if (error) {
-    console.error("fetchPublicProfile error:", error);
-    return null;
-  }
-  if (!data) return null;
-
-  return {
-    id: data.id,
-    business: data.business,
-    businessType: data.business_type,
-    customBusinessType: data.custom_business_type,
-    serviceName: data.service_name,
-    price: data.price,
-    hours: data.hours,
-    description: data.description,
-  };
+  if (typeof businessId !== "string" || !/^[0-9a-f-]{36}$/i.test(businessId)) return null;
+  const response = await fetch(`${API_BASE_URL}/public-business/${encodeURIComponent(businessId)}`);
+  if (response.status === 404) return null;
+  const payload = await response.json().catch(()=>({}));
+  if (!response.ok) throw new Error(payload.error || "Public business information unavailable");
+  return payload.business;
 }
 
 export async function fetchProfile(userId, email, userMetadata = {}) {
