@@ -1,3 +1,5 @@
+import { PLAN_PRICE_NGN_KOBO } from "../shared/planCatalog.js";
+
 export function validateCardNumber(value) {
   const digits = String(value || "").replace(/\D/g,"");
   if (digits.length < 12 || digits.length > 19) return false;
@@ -21,13 +23,18 @@ export function validateCvc(value) {
   return /^\d{3,4}$/.test(String(value||"").replace(/\D/g,""));
 }
 
-// Only NGN Paystack checkout exists. Never display a guessed USD/GHS/KES/ZAR
-// amount as if it were payable. NGN amounts here are whole naira.
+// Prices displayed in the browser are derived from the SAME server catalog.
+// Only Paystack checkout determines the amount actually charged.
 export const NGN_PLAN_PRICES = Object.freeze({
-  "14-day trial": Object.freeze({monthlyNgn:0,yearlyNgn:0,isTrial:true,trialDays:14}),
-  Starter: Object.freeze({monthlyNgn:15000,yearlyNgn:150000,isTrial:false,trialDays:0}),
-  Professional: Object.freeze({monthlyNgn:35000,yearlyNgn:350000,isTrial:false,trialDays:0}),
-  Business: Object.freeze({monthlyNgn:75000,yearlyNgn:750000,isTrial:false,trialDays:0}),
+  "14-day trial": Object.freeze({ monthlyNgn: 0, yearlyNgn: 0, isTrial: true, trialDays: 14 }),
+  ...Object.fromEntries(Object.entries(PLAN_PRICE_NGN_KOBO).map(([name, price]) => [
+    name, Object.freeze({
+      monthlyNgn: price.monthly / 100,
+      yearlyNgn: price.yearly / 100,
+      isTrial: false,
+      trialDays: 0,
+    }),
+  ])),
 });
 export function getPlanDetails(plan, _currency="NGN", billingPeriod="monthly") {
   const normalized=plan==="Free trial"?"14-day trial":plan;
