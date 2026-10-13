@@ -59,3 +59,24 @@ export function destinationForBusiness(profile, selection) {
   return paid && !(profile.paymentStatus === "active" && profile.plan === paid.plan)
     ? "checkout" : "dashboard";
 }
+
+
+// Recovery-only navigation marker. This is NOT an authentication credential.
+// A Supabase authenticated recovery session remains mandatory to update a password.
+export function rememberRecovery(session, storage = window.localStorage, now = Date.now()) {
+  if (!session?.user?.id) throw new Error("Recovery session required");
+  storage.setItem(RECOVERY_FLAG, JSON.stringify({
+    userId: session.user.id,
+    expiresAt: now + 30 * 60 * 1000,
+  }));
+}
+
+export function readRecovery(storage = window.localStorage, now = Date.now()) {
+  try {
+    const state = JSON.parse(storage.getItem(RECOVERY_FLAG) || "null");
+    if (typeof state?.userId === "string" && Number.isFinite(state.expiresAt) && state.expiresAt > now) return state;
+  } catch {
+    // Corrupt markers are ignored. Supabase controls actual authentication.
+  }
+  return null;
+}
