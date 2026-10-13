@@ -21,3 +21,15 @@ services:
         value: "22"
       # Configure SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY and
       # PAYSTACK_SECRET_KEY as dashboard-managed secret values.
+
+  - type: worker
+    name: ezeji-whatsapp-worker
+    runtime: node
+    buildCommand: npm ci
+    startCommand: node scripts/whatsapp-worker.js
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Configure SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+      # WHATSAPP_TOKEN_ENCRYPTION_KEY, GROQ_API_KEY, GROQ_MODEL
+      # and WHATSAPP_GRAPH_VERSION as dashboard-managed settings.
