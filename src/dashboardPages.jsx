@@ -1141,6 +1141,11 @@ export function BillingPage({ user, onUpdateUser }) {
       // Real redirect to Paystack's hosted checkout - no more instant
       // fake success. The plan only activates once the webhook confirms
       // a real payment actually went through.
+      // Remember the exact plan so the return page cannot confuse an old
+      // active subscription with a newly purchased upgrade.
+      window.localStorage.setItem("nightline-plan-selection", JSON.stringify({
+        plan, billingPeriod, mode: "paid", currency: "NGN",
+      }));
       window.location.href = payload.url;
     } catch (err) {
       setError(err.message || "Payment setup failed. Please try again.");
