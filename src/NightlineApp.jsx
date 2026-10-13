@@ -303,9 +303,22 @@ export default function NightlineApp() {
 
   useEffect(() => {
     const handleHistory = () => {
-      if (view !== "dashboard" || !user) return;
-      setDashTab(resolveDashboardTab(window.location.search, !!user.isStaff,
-        user.isStaff ? "bookings" : "overview"));
+      const urlView = new URLSearchParams(window.location.search).get("view");
+      if (urlView === "dashboard") {
+        if (!user) {
+          setView("login");
+          return;
+        }
+        setDashTab(resolveDashboardTab(window.location.search, !!user.isStaff,
+          user.isStaff ? "bookings" : "overview"));
+        setView("dashboard");
+      } else if (urlView === "chat" || urlView === "customer") {
+        // A public chat link needs a fresh business lookup. Never reuse
+        // the cached profile of another customer or signed-in owner.
+        window.location.reload();
+      } else if (view === "dashboard" || view === "landing") {
+        setView("landing");
+      }
     };
     window.addEventListener("popstate", handleHistory);
     return () => window.removeEventListener("popstate", handleHistory);
