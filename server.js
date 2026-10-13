@@ -7,6 +7,7 @@ import { attachStaffRoutes } from './server/staffRoutes.js';
 import { ensureOwnerBusiness } from './server/businessProvisioning.js';
 import { newPaystackReference, PAYSTACK_REFERENCE_PATTERN, parseVerifiedPaystackTransaction, paymentMatchesAttempt, isTrustedPaystackCheckoutUrl } from './server/paystackSettlement.js';
 import { attachWhatsAppRoutes } from './server/whatsappConnections.js';
+import { attachOwnerUsageRoute } from './server/ownerUsage.js';
 import { attachAssistantPreviewRoute } from './server/assistantPreview.js';
 import { buildAssistantSystemPrompt } from './server/assistantPrompt.js';
 import { PLAN_PRICE_NGN_KOBO } from './shared/planCatalog.js';
@@ -574,6 +575,8 @@ app.post('/booking-requests', async (req,res) => {
     return res.status(503).json({error:'Unable to save booking request'});
   }
 });
+
+attachOwnerUsageRoute(app, supabase);
 
 app.get('/health', (req,res) => res.json({status:'alive'}));
 app.get('/health/ready', async(req,res)=>{

@@ -1,9 +1,9 @@
 :root {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
   line-height: 1.5;
   font-weight: 400;
-  color: #f5f4f8;
-  background-color: #12131f;
+  color: var(--paper);
+  background-color: var(--ink);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -18,22 +18,19 @@
 html {
   scroll-behavior: smooth;
   max-width: 100%;
-  overflow-x: hidden;
 }
 
 body {
   margin: 0;
   min-width: 320px;
-  overflow-x: hidden;
-  background: #12131f;
-  color: #f5f4f8;
+  background: var(--ink);
+  color: var(--paper);
 }
 
 #root {
   min-height: 100vh;
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
 }
 
 button,

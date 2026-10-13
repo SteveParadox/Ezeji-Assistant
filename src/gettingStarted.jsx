@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { selectedPaidPlan } from "./authState";
 import { getStoredPlanSelection } from "./shared";
+import { Check, ArrowRight } from "lucide-react";
 import { hasConfiguredOpeningHours } from "./onboardingState";
 
 // A read-only checklist derived from the database. Never store a deceptive
@@ -36,8 +37,7 @@ export function GettingStartedPage({ user, onNavigate, onCheckout }) {
     { title: "Add services and prices", details: "Give customers accurate information on what you offer.", done: !counts.loading && !counts.error && counts.services > 0, tab: "services", required: true },
     { title: "Set business hours and location", details: "Mark at least one day open, then save your real operating schedule and address.", done: hoursReady, tab: "hours", required: true },
     { title: "Add frequently asked questions", details: "Recommended. Help customers get more useful answers.", done: !counts.loading && !counts.error && counts.faqs > 0, tab: "faqs", required: false },
-    { title: "Configure your assistant", details: "Review the assistant settings available on your plan.", done: false, tab: "ai", required: false },
-    { title: "Test the customer experience", details: "The overview includes an assistant preview, not a confirmed live connection.", done: false, tab: "overview", required: false },
+    { title: "Configure your assistant", details: "Review available settings and test a private conversation in AI Settings.", done: false, tab: "ai", required: false },
     { title: "Connect a customer channel", details: "Share your web chat link, or connect WhatsApp when eligible.", done: false, tab: "integrations", required: false },
   ];
   const required = steps.filter((step) => step.required);
@@ -54,10 +54,12 @@ export function GettingStartedPage({ user, onNavigate, onCheckout }) {
           <p className="page-sub">Finish the essentials before sharing your assistant with customers. You can return to this checklist at any time.</p>
         </div>
       </div>
-      <div className="panel">
-        <h2 className="panel-title">Essential setup: {complete} of {required.length}</h2>
+      <div className="panel setup-summary"><div>
+        <p className="panel-eyebrow">Your launch checklist</p>
+        <div className="setup-progress-heading"><h2 className="panel-title">Essential setup: {complete} of {required.length}</h2><span>{Math.round(complete / required.length * 100)}%</span></div>
         <progress className="setup-progress" value={complete} max={required.length} aria-label="Essential business setup progress" />
         <p className="panel-help">Only saved business information counts toward completion. Optional steps are available whenever you need them.</p>
+        </div>
         {pendingPaidPlan && (
           <div className="setup-billing-notice">
             <p>You selected the {selectedPlan.plan} {selectedPlan.billingPeriod} plan.
@@ -73,18 +75,20 @@ export function GettingStartedPage({ user, onNavigate, onCheckout }) {
         {counts.error && <p role="alert" className="auth-error">{counts.error}</p>}
       </div>
       <div className="setup-checklist">
-        {steps.map((step) => (
+        {steps.map((step, index) => (
           <section key={step.tab} className="panel setup-step">
-            <div>
+            <div className="setup-step-heading"><span className={`setup-step-number ${step.done ? "setup-step-number--done" : ""}`}>{step.done ? <Check size={16} /> : String(index + 1).padStart(2, "0")}</span>
               <h2 className="panel-title">{step.title}</h2>
+            </div>
               <p className="panel-help">{step.details}</p>
-              <span className={step.done ? "badge badge--green" : "badge badge--amber"}>
+            <div className="setup-step-footer">
+              <span className={step.done ? "badge badge--green" : step.required ? "badge badge--amber" : "badge badge--neutral"}>
                 {step.done ? "Saved" : step.required ? "Needs attention" : "Optional"}
               </span>
-            </div>
             <button type="button" className="btn btn--outline" onClick={() => onNavigate?.(step.tab)}>
-              {step.done ? "Review" : "Open"}
+              {step.done ? "Review" : "Open"} <ArrowRight size={14} />
             </button>
+            </div>
           </section>
         ))}
       </div>

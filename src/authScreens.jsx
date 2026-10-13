@@ -12,6 +12,7 @@ export function LoginScreen({ go }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (!email.trim() || !password) {
       setError("Enter your email and password.");
       return;
@@ -47,22 +48,22 @@ export function LoginScreen({ go }) {
       footer={
         <>
           Don't have an account?{" "}
-          <button className="link-btn" onClick={() => go("signup")}>Sign up</button>
+          <button type="button" className="link-btn" onClick={() => go("signup")}>Sign up</button>
         </>
       }
     >
       <h1 className="auth-title">Welcome back</h1>
       <p className="auth-sub">Log in to manage your business assistant.</p>
-      <div className="auth-form">
-        <TextField label="Email" type="email" icon={Mail} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@business.com" />
-        <TextField label="Password" type="password" icon={Lock} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" />
-        <button className="link-btn link-btn--right" onClick={() => go("forgot")}>Forgot password?</button>
-        {error && <p className="auth-error">{error}</p>}
-        <button className="btn btn--amber btn--full btn--lg" onClick={handleSubmit} disabled={isSubmitting}>
+      <form className="auth-form" onSubmit={event => { event.preventDefault(); void handleSubmit(); }}>
+        <TextField label="Email" type="email" autoComplete="username" icon={Mail} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@business.com" />
+        <TextField label="Password" type="password" autoComplete="current-password" icon={Lock} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" />
+        <button type="button" className="link-btn link-btn--right" onClick={() => go("forgot")}>Forgot password?</button>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <button className="btn btn--amber btn--full btn--lg" type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Logging in..." : "Log in"}
         </button>
-        <button className="link-btn" onClick={() => go("landing")}>Back to landing</button>
-      </div>
+        <button type="button" className="link-btn" onClick={() => go("landing")}>Back to landing</button>
+      </form>
     </AuthShell>
   );
 }
@@ -107,17 +108,17 @@ export function SignupScreen({ go }) {
           : "Start your 14-day trial. No card required."}
         {" "}You'll add services, hours and assistant details after registration.
       </p>
-      <div className="auth-form">
-        <TextField label="Full name" value={form.name} onChange={set("name")} placeholder="Your name" />
+      <form className="auth-form" onSubmit={event => { event.preventDefault(); void handleSubmit(); }}>
+        <TextField label="Full name" autoComplete="name" value={form.name} onChange={set("name")} placeholder="Your name" />
         <TextField label="Business name" icon={Building2} value={form.business} onChange={set("business")} placeholder="Your business" />
-        <TextField label="Email address" type="email" icon={Mail} value={form.email} onChange={set("email")} placeholder="you@business.com" />
-        <TextField label="Password (at least 8 characters)" type="password" icon={Lock} value={form.password} onChange={set("password")} />
+        <TextField label="Email address" autoComplete="email" type="email" icon={Mail} value={form.email} onChange={set("email")} placeholder="you@business.com" />
+        <TextField label="Password (at least 8 characters)" type="password" autoComplete="new-password" icon={Lock} value={form.password} onChange={set("password")} />
         {error && <p className="auth-error" role="alert">{error}</p>}
-        <button type="button" className="btn btn--amber btn--full btn--lg" onClick={handleSubmit} disabled={isSubmitting}>
+        <button type="submit" className="btn btn--amber btn--full btn--lg" disabled={isSubmitting}>
           {isSubmitting ? "Creating account..." : "Create account"}
         </button>
         <button type="button" className="link-btn" onClick={() => go("landing")}>Back to landing</button>
-      </div>
+      </form>
     </AuthShell>
   );
 }
@@ -145,7 +146,7 @@ export function CheckoutScreen({ go, user }) {
   return (
     <AuthShell footer={<button className="link-btn" onClick={() => go("landing")}>Back to landing</button>}>
       <h1 className="auth-title">Secure checkout</h1>
-      <p className="auth-sub">Your business must be verified before Paystack checkout.</p>
+      <p className="auth-sub">Complete a one-time purchase in NGN through Paystack. Access activates after server-verified payment settlement. Payments do not renew automatically.</p>
       <div className="auth-form">
         {selection && <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
           <p className="stat-label">{selection.plan} plan</p>
@@ -158,7 +159,7 @@ export function CheckoutScreen({ go, user }) {
             <button className="link-btn" onClick={() => go("login")}>Already registered? Log in</button>
           </>
         ) : user.isStaff ? (
-          <p className="auth-error">Only a business owner can manage subscription checkout.</p>
+          <p className="auth-error" role="alert">Only a business owner can manage subscription checkout.</p>
         ) : user.paymentStatus === "active" && user.plan === selection?.plan && user.billingPeriod === selection?.billingPeriod ? (
           <>
             <p>You're already subscribed to this plan.</p>
@@ -169,7 +170,7 @@ export function CheckoutScreen({ go, user }) {
             {submitting ? "Connecting to Paystack..." : "Continue to Paystack"}
           </button>
         )}
-        {error && <p className="auth-error">{error}</p>}
+        {error && <p className="auth-error" role="alert">{error}</p>}
       </div>
     </AuthShell>
   );
@@ -182,6 +183,7 @@ export function ForgotScreen({ go }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (!email.trim()) {
       setError("Enter your email address.");
       return;
@@ -203,20 +205,20 @@ export function ForgotScreen({ go }) {
   };
 
   return (
-    <AuthShell footer={<button className="link-btn" onClick={() => go("login")}>Back to log in</button>}>
+    <AuthShell footer={<button type="button" className="link-btn" onClick={() => go("login")}>Back to log in</button>}>
       <h1 className="auth-title">Reset your password</h1>
       <p className="auth-sub">
         {sent ? "Check your inbox for a reset link." : "Enter your email and we'll send you a reset link."}
       </p>
       {!sent ? (
-        <div className="auth-form">
+        <form className="auth-form" onSubmit={event => { event.preventDefault(); void handleSubmit(); }}>
           <TextField label="Email" type="email" icon={Mail} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@business.com" />
-          {error && <p className="auth-error">{error}</p>}
-          <button className="btn btn--amber btn--full btn--lg" onClick={handleSubmit} disabled={isSubmitting}>
+          {error && <p className="auth-error" role="alert">{error}</p>}
+          <button className="btn btn--amber btn--full btn--lg" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Sending..." : "Send reset link"}
           </button>
-          <button className="link-btn" onClick={() => go("landing")}>Back to landing</button>
-        </div>
+          <button type="button" className="link-btn" onClick={() => go("landing")}>Back to landing</button>
+        </form>
       ) : (
         <div className="reset-sent">
           <CheckCircle2 className="reset-sent-icon" />
@@ -250,15 +252,15 @@ export function VerificationPendingScreen({ go, email }) {
     }
   };
   return (
-    <AuthShell footer={<button className="link-btn" onClick={() => go("login")}>Back to login</button>}>
+    <AuthShell footer={<button type="button" className="link-btn" onClick={() => go("login")}>Back to login</button>}>
       <h1 className="auth-title">Check your email</h1>
       <p className="auth-sub">Confirm your email address, then return to Ezeji Assistant. We will continue your business setup and selected plan.</p>
-      <div className="auth-form">
+      <form className="auth-form" onSubmit={event => { event.preventDefault(); void resend(); }}>
         <TextField label="Registration email" type="email" icon={Mail} value={address} onChange={(e) => setAddress(e.target.value)} />
-        <button className="btn btn--amber btn--full" onClick={resend} disabled={busy}>{busy ? "Sending..." : "Resend confirmation"}</button>
+        <button className="btn btn--amber btn--full" type="submit" disabled={busy}>{busy ? "Sending..." : "Resend confirmation"}</button>
         {state && <p role="status">{state}</p>}
-        <button className="link-btn" onClick={() => go("login")}>Already verified? Log in</button>
-      </div>
+        <button type="button" className="link-btn" onClick={() => go("login")}>Already verified? Log in</button>
+      </form>
     </AuthShell>
   );
 }
@@ -293,7 +295,7 @@ export function ResetPasswordScreen({ go }) {
     }
   };
   return (
-    <AuthShell footer={<button className="link-btn" onClick={() => go("login")}>Back to login</button>}>
+    <AuthShell footer={<button type="button" className="link-btn" onClick={() => go("login")}>Back to login</button>}>
       <h1 className="auth-title">Choose a new password</h1>
       {done ? (
         <div className="auth-form">
@@ -301,12 +303,12 @@ export function ResetPasswordScreen({ go }) {
           <button className="btn btn--amber btn--full" onClick={() => go("login")}>Log in</button>
         </div>
       ) : (
-        <div className="auth-form">
-          <TextField label="New password (8+ characters)" type="password" icon={Lock} value={password} onChange={(e) => setPassword(e.target.value)} />
-          <TextField label="Confirm new password" type="password" icon={Lock} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        <form className="auth-form" onSubmit={event => { event.preventDefault(); void save(); }}>
+          <TextField label="New password (8+ characters)" type="password" autoComplete="new-password" icon={Lock} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <TextField label="Confirm new password" type="password" autoComplete="new-password" icon={Lock} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
           {error && <p className="auth-error" role="alert">{error}</p>}
-          <button className="btn btn--amber btn--full btn--lg" disabled={busy} onClick={save}>{busy ? "Saving..." : "Update password"}</button>
-        </div>
+          <button className="btn btn--amber btn--full btn--lg" disabled={busy} type="submit">{busy ? "Saving..." : "Update password"}</button>
+        </form>
       )}
     </AuthShell>
   );
@@ -334,15 +336,15 @@ export function BusinessSetupScreen({ go, session, onReady }) {
     }
   };
   return (
-    <AuthShell footer={<button className="link-btn" onClick={() => supabase.auth.signOut().then(() => go("login"))}>Use another account</button>}>
+    <AuthShell footer={<button type="button" className="link-btn" onClick={() => supabase.auth.signOut().then(() => go("login"))}>Use another account</button>}>
       <h1 className="auth-title">Complete business setup</h1>
       <p className="auth-sub">Your account is verified. Provide the missing business details to continue to your saved plan.</p>
-      <div className="auth-form">
+      <form className="auth-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
         <TextField label="Your name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
         <TextField label="Business name" icon={Building2} value={form.business} onChange={(e) => setForm((f) => ({ ...f, business: e.target.value }))} />
-        <button className="btn btn--amber btn--full" onClick={submit} disabled={busy}>{busy ? "Saving..." : "Continue"}</button>
+        <button className="btn btn--amber btn--full" type="submit" disabled={busy}>{busy ? "Saving..." : "Continue"}</button>
         {error && <p className="auth-error" role="alert">{error}</p>}
-      </div>
+      </form>
     </AuthShell>
   );
 }
@@ -387,7 +389,7 @@ export function PaymentPendingScreen({ onCheck, onDashboard }) {
   return (
     <AuthShell footer={<button className="link-btn" onClick={onDashboard}>Open billing without dismissing payment verification</button>}>
       <h1 className="auth-title">Checking your payment</h1>
-      <p className="auth-sub">{message}</p>
+      <p className="auth-sub" role="status" aria-live="polite">{message}</p>
       <button className="btn btn--amber btn--full" onClick={refresh} disabled={checking}>
         {checking ? "Checking..." : "Refresh payment status"}
       </button>

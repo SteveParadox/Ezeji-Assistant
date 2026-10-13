@@ -35,13 +35,13 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   const disappearingKey = `nightline-disappearing-messages-${storageScope}`;
 
   const [disappearing, setDisappearing] = useState(() => {
-    if (typeof window === "undefined") return true;
+    if (previewOnly || typeof window === "undefined") return true;
     const stored = window.localStorage.getItem(disappearingKey);
     if (stored !== null) return stored === "true";
     return user?.disappearingDefault !== false;
   });
   const [messages, setMessages] = useState(() => {
-    if (typeof window === "undefined") return [];
+    if (previewOnly || typeof window === "undefined") return [{from:"ai",text:`Hi! This is ${user?.business || "your business"}'s private assistant preview.`}];
     try {
       const raw = window.localStorage.getItem(chatHistoryKey);
       if (raw) {
@@ -70,7 +70,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
     setKnowledge({ faqs: [], services: [] });
     if (typeof window === "undefined") return;
     try {
-      const raw = window.localStorage.getItem(chatHistoryKey);
+      const raw = previewOnly ? null : window.localStorage.getItem(chatHistoryKey);
       setMessages(raw ? JSON.parse(raw) : [
         {
           from: "ai",
@@ -91,25 +91,25 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   }, []);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (!previewOnly && typeof window !== "undefined") {
       window.localStorage.setItem(disappearingKey, String(disappearing));
     }
-  }, [disappearing, disappearingKey]);
+  }, [disappearing, disappearingKey, previewOnly]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (!previewOnly && typeof window !== "undefined") {
       if (disappearing) {
         window.localStorage.removeItem(chatHistoryKey);
       } else {
         window.localStorage.setItem(chatHistoryKey, JSON.stringify(messages));
       }
     }
-  }, [messages, disappearing, chatHistoryKey]);
+  }, [messages, disappearing, chatHistoryKey, previewOnly]);
 
   const [knowledge, setKnowledge] = useState({ faqs: [], services: [] });
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || previewOnly) return;
     let cancelled = false;
     fetch(`${API_BASE_URL}/public-business/${encodeURIComponent(user.id)}`)
       .then(async response=>{
@@ -123,14 +123,14 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
         if(!cancelled){setKnowledge({faqs:[],services:[]});console.error("Knowledge lookup error",error.message);}
       });
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, previewOnly]);
 
   const clearChat = () => {
     // Ignore replies from a request the user explicitly discarded.
     requestGeneration.current += 1;
     sendingRef.current = false;
     setIsTyping(false);
-    if (typeof window !== "undefined") {
+    if (!previewOnly && typeof window !== "undefined") {
       window.localStorage.removeItem(chatHistoryKey);
     }
     setMessages([
@@ -287,17 +287,18 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
                 <span className="widget-status-dot" />
                 <span className="widget-status-label mono">{previewOnly ? "Preview" : "Customer chat"}</span>
               </span>
-              <button
+              {!previewOnly && <button
                 className={`icon-btn ${disappearing ? "icon-btn--active" : ""}`}
                 onClick={() => setDisappearing((d) => !d)}
+                aria-label="Toggle disappearing messages" aria-pressed={disappearing}
                 title={disappearing ? "Disappearing messages: on" : "Disappearing messages: off"}
               >
                 <Clock className="icon-btn-icon" />
-              </button>
-              <button className="icon-btn" onClick={clearChat} title="Clear chat">
+              </button>}
+              <button className="icon-btn" onClick={clearChat} aria-label="Clear chat" title="Clear chat">
                 <Trash2 className="icon-btn-icon" />
               </button>
-              <button className="icon-btn" onClick={() => setOpen(false)}><X className="icon-btn-icon" /></button>
+              <button className="icon-btn" aria-label="Close chat" onClick={() => setOpen(false)}><X className="icon-btn-icon" /></button>
             </div>
           </div>
           <div className="widget-body">
@@ -307,7 +308,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
                 Couldn't reach the AI server - showing a basic offline reply below, not the real AI.
               </div>
             )}
-            {disappearing && (
+            {disappearing && !previewOnly && (
               <div className="widget-disappearing-note">
                 Disappearing messages is on - this chat won't be saved.
               </div>
@@ -329,18 +330,18 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
               <div className="panel" style={{padding:12,marginTop:10}}>
                 <p className="panel-title">Request an appointment</p>
                 <p className="panel-help">Times are entered in your device timezone. Staff must confirm the request.</p>
-                <input className="field-input" placeholder="Your name" value={booking.name}
+                <input className="field-input" aria-label="Customer name" placeholder="Your name" value={booking.name}
                   onChange={e=>setBooking(b=>({...b,name:e.target.value}))} />
-                <input className="field-input" placeholder="Email or phone" value={booking.contact}
+                <input className="field-input" aria-label="Customer email or phone" placeholder="Email or phone" value={booking.contact}
                   onChange={e=>setBooking(b=>({...b,contact:e.target.value}))} />
-                <select className="field-input" value={booking.serviceId}
+                <select aria-label="Booking service" className="field-input" value={booking.serviceId}
                   onChange={e=>setBooking(b=>({...b,serviceId:e.target.value}))}>
                   <option value="">Choose a service</option>
                   {knowledge.services.map(service=><option key={service.id} value={service.id}>
                     {service.name} ({service.duration || "duration not set"})
                   </option>)}
                 </select>
-                <input className="field-input" type="datetime-local" value={booking.startAt}
+                <input className="field-input" aria-label="Requested appointment date and time" type="datetime-local" value={booking.startAt}
                   onChange={e=>setBooking(b=>({...b,startAt:e.target.value}))} />
                 <button className="btn btn--amber" disabled={bookingBusy||!booking.serviceId}
                   onClick={submitBookingRequest}>{bookingBusy?"Submitting...":"Submit booking request"}</button>
@@ -363,7 +364,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
               {isListening ? <MicOff className="icon-btn-icon" /> : <Mic className="icon-btn-icon" />}
             </button>
             <input
-              className="field-input widget-input"
+              aria-label="Message to assistant" className="field-input widget-input"
               placeholder="Type a message..."
               value={draft}
               disabled={!enabled}
@@ -375,12 +376,12 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
                 }
               }}
             />
-            <button className="widget-send" onClick={() => send()} disabled={!enabled}><Send className="icon-btn-icon" /></button>
+            <button aria-label="Send message" className="widget-send" onClick={() => send()} disabled={!enabled}><Send className="icon-btn-icon" /></button>
           </div>
         </div>
       )}
       {!open && (
-        <button className="widget-bubble" onClick={() => setOpen(true)}>
+        <button aria-label="Open chat" className="widget-bubble" onClick={() => setOpen(true)}>
           <MessageCircle className="icon-btn-icon" />
         </button>
       )}

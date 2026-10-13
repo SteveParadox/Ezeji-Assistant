@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { Eye, EyeOff } from "lucide-react";
 import { resolveSignedInUserWith } from "./signedInUser.js";
@@ -145,15 +145,20 @@ export async function upsertProfile(userId, fields) {
   }
 }
 
-export function TextField({ label, type = "text", icon: Icon, value, onChange, placeholder }) {
+export function TextField({ label, type = "text", icon: Icon, value, onChange, placeholder, help, error, ...inputProps }) {
+  const id = useId();
   const [show, setShow] = useState(false);
   const isPassword = type === "password";
   return (
-    <label className="field">
+    <label className="field" htmlFor={id}>
       <span className="field-label">{label}</span>
-      <div className="field-input-wrap">
+      <div className={`field-input-wrap ${Icon ? "field-input-wrap--icon" : ""} ${isPassword ? "field-input-wrap--password" : ""}`}>
         {Icon && <Icon className="field-icon" />}
         <input
+          {...inputProps}
+          id={id}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={help || error ? `${id}-help` : undefined}
           className="field-input"
           type={isPassword && show ? "text" : type}
           value={value}
@@ -166,19 +171,21 @@ export function TextField({ label, type = "text", icon: Icon, value, onChange, p
           </button>
         )}
       </div>
+      {(help || error) && <span id={`${id}-help`} className={error ? "auth-error" : "field-help"}>{error || help}</span>}
     </label>
   );
 }
 
 export function AuthShell({ children, footer }) {
   return (
-    <div className="auth-screen">
+    <main className="auth-screen">
       <div className="auth-card">
-        <Logo size={20} />
+        <Logo size={24} />
+        <p className="auth-kicker">Your business, thoughtfully connected</p>
         {children}
       </div>
       <p className="auth-footer">{footer}</p>
-    </div>
+    </main>
   );
 }
 
@@ -233,12 +240,12 @@ export const CONVERSATION_LIMITS = {
 };
 
 
-export function StatCard({ label, value, sub, accent }) {
+export function StatCard({ label, value, sub, accent, loading }) {
   return (
-    <div className="stat-card">
+    <div className="stat-card" aria-busy={loading || undefined}>
       <p className="stat-label">{label}</p>
-      <p className="stat-value" style={accent ? { color: "var(--amber)" } : undefined}>{value}</p>
-      {sub && <p className="stat-sub">{sub}</p>}
+      <p className="stat-value" style={accent ? { color: "var(--amber)" } : undefined}>{loading ? <span className="skeleton" aria-label="Loading metric" /> : value}</p>
+      {sub && !loading && <p className="stat-sub">{sub}</p>}
     </div>
   );
 }

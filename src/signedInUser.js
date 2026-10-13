@@ -29,6 +29,7 @@ export async function resolveSignedInUserWith(authUser, accessToken, { lookupPro
     id: result.businessId,
     email: authUser.email,
     plan: result.plan,
+    business: typeof result.business === "string" ? result.business : "",
     authUserId: authUser.id,
     isStaff: true,
     staffRole: result.role || "agent",

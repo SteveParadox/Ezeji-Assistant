@@ -1,5 +1,6 @@
 import React from 'react';
 import NightlineApp from './NightlineApp';
+import { ConfirmationProvider } from './ui';
 
 class AppErrorBoundary extends React.Component {
   state = { error: null };
@@ -24,6 +25,6 @@ class AppErrorBoundary extends React.Component {
 }
 
 function App() {
-  return <AppErrorBoundary><NightlineApp /></AppErrorBoundary>;
+  return <AppErrorBoundary><ConfirmationProvider><NightlineApp /></ConfirmationProvider></AppErrorBoundary>;
 }
 export default App;
