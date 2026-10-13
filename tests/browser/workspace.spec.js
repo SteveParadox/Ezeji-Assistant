@@ -178,3 +178,28 @@ test('navigation dismisses stale confirmations before they can write in another 
   await expect(page.getByRole('heading',{name:'Your business at a glance'})).toBeVisible(); await expect(page.getByRole('dialog')).not.toBeVisible();
   expect(writes.filter(row=>row.method==='DELETE')).toHaveLength(0);
 });
+
+
+test('WhatsApp connection cannot be disconnected during an in-flight verification',async({page})=>{
+  await setupApp(page);
+  await page.route('**/integrations/whatsapp', async route => {
+    if(route.request().method()==='GET'){
+      return route.fulfill({json:{connection:{phone_number_id:'123456789012345'}}});
+    }
+    if(route.request().method()==='PUT'){
+      await new Promise(resolve=>setTimeout(resolve,700));
+      return route.fulfill({json:{connection:{phone_number_id:'123456789012345',displayPhoneNumber:'+2348000000000'}}});
+    }
+    return route.fulfill({status:503,json:{error:'Unexpected test request'}});
+  });
+  await page.goto('/?view=dashboard&tab=integrations');
+  const update=page.getByRole('button',{name:'Update connection'});
+  const disconnect=page.getByRole('button',{name:'Disconnect'});
+  await expect(update).toBeVisible();
+  await page.getByRole('textbox',{name:'Access token'}).fill('replace-token');
+  await update.click();
+  await expect(page.getByRole('button',{name:'Verifying with Meta...'})).toBeDisabled();
+  await expect(disconnect).toBeDisabled();
+  await expect(page.getByRole('status',{name:''}).filter({hasText:'Saved successfully'})).toBeVisible();
+  await expect(disconnect).toBeEnabled();
+});
