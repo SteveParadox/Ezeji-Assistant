@@ -12,3 +12,9 @@ test("new paid registrations complete business setup before the checkout screen"
 test("staff do not enter owner onboarding", () => {
   assert.equal(requiresCoreBusinessSetup({ isStaff: true }), false);
 });
+
+test("all-closed hours do not mean a business is ready for customer appointments", () => {
+  assert.equal(requiresCoreBusinessSetup({
+    ...complete, hoursJson: [{ day: "Monday", open: "", close: "", closed: true }],
+  }), true);
+});
