@@ -151,6 +151,10 @@ app.post('/assistant-reply', async (req,res)=>{
     const p=prof.data;
     const systemPrompt=`You are a customer assistant for ${p.business}. Answer using only business facts provided below. Do not invent availability or claim any booking is confirmed. Booking requests must be confirmed by staff. Hours: ${p.hours||'Not provided'}. Description: ${p.description||''}. Services: ${JSON.stringify(services.data||[])}. FAQs: ${JSON.stringify(faq.data||[])}`;
     const result=await generateAssistantReply({message:message.trim(),profile:{business:p.business,serviceName:p.service_name,price:p.price,hours:p.hours},conversation:conversation||[],systemPrompt});
+    if(result.provider==='groq') {
+      const {error:writeError}=await supabase.from('conversations').insert({business_id:businessId,customer_message:message.trim(),ai_reply:result.reply,escalated:false,booking_intent:/book|reserve|appointment/i.test(message)});
+      if(writeError) throw new Error('Conversation persistence unavailable');
+    }
     return res.json(result);
   } catch(error) {
     console.error('assistant-reply error:',error.message);
@@ -173,7 +177,7 @@ const PRICE_MAP_NGN_KOBO = {
 app.post('/create-checkout-session', async (req,res)=>{
   try {
     if (!supabase) return res.status(503).json({error:'Database unavailable'});
-    const bearer=/^Bearer (\\S+)$/i.exec(req.headers.authorization||'');
+    const bearer=/^Bearer (\S+)$/i.exec(req.headers.authorization||'');
     if(!bearer) return res.status(401).json({error:'Sign in required'});
     const {data:auth,error:authError}=await supabase.auth.getUser(bearer[1]);
     if(authError||!auth?.user) return res.status(401).json({error:'Invalid session'});
@@ -345,6 +349,12 @@ app.get('/webhook/whatsapp', (req, res) => {
 });
 
 app.post('/webhook/whatsapp', async (req, res) => {
+  const provided=req.headers['x-hub-signature-256'];
+  const secret=process.env.WHATSAPP_APP_SECRET;
+  if(!secret||typeof provided!=='string'||!Buffer.isBuffer(req.rawBody)) return res.sendStatus(401);
+  const expected=Buffer.from('sha256='+crypto.createHmac('sha256',secret).update(req.rawBody).digest('hex'));
+  const actual=Buffer.from(provided);
+  if(actual.length!==expected.length||!crypto.timingSafeEqual(actual,expected)) return res.sendStatus(401);
   res.sendStatus(200);
 
   if (!supabase) {
