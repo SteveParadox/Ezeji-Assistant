@@ -23,7 +23,9 @@ try {
   const result = await reconcileDueCheckouts(db, { verify });
   const { data: expired, error } = await db.rpc("expire_paid_subscriptions");
   if (error) throw error;
-  console.info(JSON.stringify({ event: "billing_maintenance", ...result, expiredSubscriptions: expired }));
+  const {data: released, error: releaseError} = await db.rpc("expire_ai_reservations");
+  if (releaseError) throw releaseError;
+  console.info(JSON.stringify({event:"billing_maintenance",...result,expiredSubscriptions:expired,expiredReservations:released}));
 } catch (error) {
   console.error(JSON.stringify({ event: "billing_maintenance_failed", reason: error.message }));
   process.exitCode = 1;
