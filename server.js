@@ -125,7 +125,7 @@ app.get('/public-business/:businessId', async (req,res) => {
     if(!supabase)return res.status(503).json({error:'Public business information unavailable'});
     const [profile,faqs,services]=await Promise.all([
       supabase.from('profiles')
-        .select('id,business,business_type,custom_business_type,service_name,price,hours,description,timezone')
+        .select('id,business,business_type,custom_business_type,service_name,price,hours,description,timezone,contact_phone,public_contact_email,website')
         .eq('id',businessId).maybeSingle(),
       supabase.from('faqs').select('question,answer').eq('business_id',businessId).limit(60),
       supabase.from('services').select('id,name,price,duration').eq('business_id',businessId).limit(60),
@@ -138,6 +138,9 @@ app.get('/public-business/:businessId', async (req,res) => {
       serviceName:profile.data.service_name,price:profile.data.price,
       hours:profile.data.hours,description:profile.data.description,
       timezone:profile.data.timezone,
+      phone:profile.data.contact_phone,
+      contactEmail:profile.data.public_contact_email,
+      website:profile.data.website,
     },faqs:faqs.data||[],services:services.data||[]});
   }catch(error){
     console.error('Public business lookup error',error.message);
