@@ -40,6 +40,7 @@ export const NAV_ITEMS = [
   { id: "conversations", label: "Conversations", icon: MessagesSquare },
   { id: "analytics", label: "Analytics", icon: BarChart3 },
   { id: "billing", label: "Billing", icon: CreditCard },
+  { id: "integrations", label: "Integrations", icon: Bot },
 ];
 
 export function DashboardShell({ go, active, setActive, children, isStaff = false }) {
@@ -190,7 +191,7 @@ export function OverviewPage({ user, onUpdateUser }) {
 
       <div className="stat-grid">
         <StatCard label="Conversations today" value={loading ? "..." : String(stats.today)} sub={loading ? "" : `${diffFromYesterday >= 0 ? "+" : ""}${diffFromYesterday} vs yesterday`} />
-        <StatCard label="Resolved by AI" value={loading ? "..." : `${stats.resolvedPct}%`} accent sub={loading ? "" : `${stats.today - stats.escalated} of ${stats.today} handled`} />
+        <StatCard label="Not escalated" value={loading ? "..." : `${stats.resolvedPct}%`} accent sub={loading ? "" : `${stats.today - stats.escalated} of ${stats.today} handled`} />
         <StatCard label="Escalated to staff" value={loading ? "..." : String(stats.escalated)} sub="today" />
         <StatCard label="Total logged" value={loading ? "..." : String(stats.total)} sub="all time" />
       </div>
@@ -928,7 +929,7 @@ export function AnalyticsPage({ user }) {
       <div className="page-header"><div><h1 className="page-title">Analytics</h1><p className="page-sub">What customers ask, and how well the AI answers. Last 30 days.</p></div></div>
       <div className="stat-grid">
         <StatCard label="Total conversations" value={loading ? "..." : String(total)} sub="last 30 days" />
-        <StatCard label="Resolution rate" value={loading ? "..." : `${resolutionRate}%`} accent />
+        <StatCard label="Not escalated" value={loading ? "..." : `${resolutionRate}%`} accent />
         {tier === "advanced" && <StatCard label="Booking intents" value={loading ? "..." : String(bookingsCount)} sub="messages mentioning dates/booking" />}
       </div>
       {tier === "basic" ? (
@@ -1155,17 +1156,7 @@ export function BillingPage({ user, onUpdateUser }) {
 
   const handleActivate = async () => {
     if (plan === "14-day trial") {
-      const nextUser = {
-        ...(user || {}),
-        plan,
-        paymentStatus: "trial",
-        trialActive: true,
-        billingPeriod,
-        currency: "NGN",
-        trialEndsAt: getTrialEndsAt(14),
-      };
-      onUpdateUser(nextUser);
-      setMessage(`Your 14-day trial has started. You'll have access for 14 more days.`);
+      setError("A trial starts at registration and cannot be restarted. Select a paid plan.");
       return;
     }
 
@@ -1177,9 +1168,11 @@ export function BillingPage({ user, onUpdateUser }) {
     setError("");
     setIsSubmitting(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Please sign in again.");
       const response = await fetch(`${API_BASE_URL}/create-checkout-session`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({
           plan,
           billingPeriod,
@@ -1236,7 +1229,7 @@ export function BillingPage({ user, onUpdateUser }) {
             <p className="current-plan-name">{plan === "14-day trial" ? "Free for 14 days" : `${planDetails.displayPrice}/${billingPeriod === "yearly" ? "year" : "month"}`}</p>
             <p className="panel-help">{plan === "14-day trial" ? "No payment required to start." : "Charged in NGN via Paystack."}</p>
           </div>
-          <button className="btn btn--amber" onClick={handleActivate} disabled={isSubmitting}>{isSubmitting ? "Setting up..." : plan === "14-day trial" ? "Start 14-day trial" : "Continue to Paystack"}</button>
+          <button className="btn btn--amber" onClick={handleActivate} disabled={isSubmitting}>{isSubmitting ? "Setting up..." : plan === "14-day trial" ? "Trial already used" : "Continue to Paystack"}</button>
           {error && <p className="auth-error">{error}</p>}
           {message && <p className="save-status">{message}</p>}
         </div>
@@ -1277,4 +1270,5 @@ export const DASHBOARD_PAGES = {
   conversations: ConversationsPage,
   analytics: AnalyticsPage,
   billing: BillingPage,
+  integrations: IntegrationsPage,
 };
