@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validatePaymentReplay } from "./paymentReplay.js";
+import { validatePaymentReplay, isSameActiveSubscription } from "./paymentReplay.js";
 
 const payment = {
   reference: "pay_abc123", provider: "paystack", businessId: "owner-1",
@@ -41,4 +41,12 @@ test("malformed references are always rejected", () => {
   for (const reference of ["", "a/../../b", "hello world"]) {
     assert.throws(() => validatePaymentReplay(null, { ...payment, reference }), /Invalid/);
   }
+});
+
+
+test("same plan with another billing period is allowed at checkout", () => {
+  const profile = { plan: "Business", payment_status: "active", billing_period: "monthly" };
+  assert.equal(isSameActiveSubscription(profile, "Business", "yearly"), false);
+  assert.equal(isSameActiveSubscription(profile, "Business", "monthly"), true);
+  assert.equal(isSameActiveSubscription({ ...profile, payment_status: "pending" }, "Business", "monthly"), false);
 });
