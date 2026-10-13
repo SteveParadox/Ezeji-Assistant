@@ -1099,6 +1099,7 @@ export function BillingPage({ user, onUpdateUser }) {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [cancelScheduled, setCancelScheduled] = useState(user?.cancelAtPeriodEnd === true);
 
   const cancelAtPeriodEnd = async () => {
     if (!window.confirm("Keep your current paid access until the end of the purchased term, then stop?")) return;
@@ -1113,6 +1114,7 @@ export function BillingPage({ user, onUpdateUser }) {
       const result=await response.json().catch(()=>({}));
       if(!response.ok)throw new Error(result.error||"Unable to cancel subscription.");
       setMessage(`Cancellation scheduled. Access continues until ${new Date(result.paidThrough).toLocaleDateString()}.`);
+      setCancelScheduled(true);
     }catch(error){setError(error.message||"Unable to save cancellation preference");}
     finally{setIsSubmitting(false);}
   };
@@ -1205,12 +1207,12 @@ export function BillingPage({ user, onUpdateUser }) {
           <p className="panel-help">Paid access through: {new Date(user.subscriptionEndsAt).toLocaleDateString()}.
             One-time purchases do not renew automatically.</p>
         )}
-        {user?.paymentStatus === "active" && !user?.cancelAtPeriodEnd && (
+        {user?.paymentStatus === "active" && !cancelScheduled && (
           <button className="btn btn--outline" onClick={cancelAtPeriodEnd} disabled={isSubmitting}>
             Cancel at end of paid term
           </button>
         )}
-        {user?.cancelAtPeriodEnd && <p className="panel-help">Cancellation scheduled for the end of your paid term.</p>}
+        {cancelScheduled && <p className="panel-help">Cancellation scheduled for the end of your paid term.</p>}
         <div className="billing-form">
           <label className="field">
             <span className="field-label">Plan</span>
