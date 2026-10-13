@@ -467,6 +467,33 @@ app.get('/verify-paystack/:reference', async (req, res) => {
   }
 });
 
+// One-time paid terms do not automatically recur. This endpoint records a
+// customer's instruction not to renew, without shortening paid access.
+app.post('/subscriptions/cancel-at-period-end', async(req,res) => {
+  try {
+    if(!supabase)return res.status(503).json({error:'Billing database unavailable'});
+    const bearer=/^Bearer (\S+)$/i.exec(req.headers.authorization||'');
+    if(!bearer)return res.status(401).json({error:'Sign in required'});
+    const auth=await supabase.auth.getUser(bearer[1]);
+    if(auth.error||!auth.data?.user)return res.status(401).json({error:'Invalid session'});
+    const businessId=auth.data.user.id;
+    const {data:sub,error:lookupError}=await supabase.from('subscriptions')
+      .select('id,status,current_period_end').eq('business_id',businessId).maybeSingle();
+    if(lookupError)throw lookupError;
+    if(!sub||!['active','cancellation_scheduled'].includes(sub.status)||
+      Date.parse(sub.current_period_end)<=Date.now()) {
+      return res.status(409).json({error:'No active term can be canceled'});
+    }
+    const {data,error}=await supabase.from('subscriptions')
+      .update({cancel_at_period_end:true,status:'cancellation_scheduled',updated_at:new Date().toISOString()})
+      .eq('id',sub.id).eq('business_id',businessId).in('status',['active','cancellation_scheduled'])
+      .select('current_period_end,cancel_at_period_end').maybeSingle();
+    if(error||!data)throw error||new Error('Subscription changed concurrently');
+    return res.json({cancelAtPeriodEnd:true,paidThrough:data.current_period_end});
+  }catch(error){console.error('Subscription cancellation failed',error.message);
+    return res.status(503).json({error:'Unable to change cancellation preference'});}
+});
+
 app.post('/booking-requests', async (req,res) => {
   try {
     if (!supabase) return res.status(503).json({error:'Booking database unavailable'});
