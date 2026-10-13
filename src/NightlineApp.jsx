@@ -11,6 +11,7 @@ import {
   readAuthCallback, hasAuthCallback, scrubAuthCallback, selectedPaidPlan, isSelectedPlanActive, RECOVERY_FLAG, readRecovery, rememberRecovery,
 } from "./authLifecycle";
 import { DashboardShell, DASHBOARD_PAGES } from "./dashboardPages";
+import { resolveDashboardTab, dashboardUrlForTab } from "./dashboardNavigation";
 import { ChatWidgetDemo } from "./chatWidget";
 
 function getInitialViewFromUrl() {
@@ -29,7 +30,7 @@ export default function NightlineApp() {
   const [view, setView] = useState(() => getInitialViewFromUrl());
   const [landingScrollY, setLandingScrollY] = useState(0);
   const [restoreScroll, setRestoreScroll] = useState(false);
-  const [dashTab, setDashTab] = useState("overview");
+  const [dashTab, setDashTab] = useState(() => resolveDashboardTab(typeof window === "undefined" ? "" : window.location.search));
   const [user, setUser] = useState(null);
   const [staffMembershipOptions, setStaffMembershipOptions] = useState([]);
   const [session, setSession] = useState(null);
@@ -47,6 +48,12 @@ export default function NightlineApp() {
 
   const go = (nextView, details) => {
     if (nextView === "verify") setPendingEmail(details?.email || "");
+    if (nextView === "landing" && window.location.search.includes("view=dashboard")) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("view");
+      url.searchParams.delete("tab");
+      window.history.pushState(null, "", url.pathname + url.search + url.hash);
+    }
     setView(nextView);
   };
 
@@ -71,7 +78,8 @@ export default function NightlineApp() {
     } else if (!profile.isStaff && selection && !selectedPlanActive) {
       setView("checkout");
     } else {
-      setDashTab(profile.isStaff ? "bookings" : "overview");
+      const fallback = profile.isStaff ? "bookings" : profile.description?.trim() ? "overview" : "gettingStarted";
+      setDashTab(resolveDashboardTab(window.location.search, !!profile.isStaff, fallback));
       setView("dashboard");
     }
   }, []);
@@ -263,6 +271,25 @@ export default function NightlineApp() {
     return false;
   };
 
+  const navigateDashboard = (tab) => {
+    if (!user) return;
+    const nextUrl = dashboardUrlForTab(window.location.href, tab, !!user.isStaff);
+    if (nextUrl !== window.location.pathname + window.location.search + window.location.hash) {
+      window.history.pushState(null, "", nextUrl);
+    }
+    setDashTab(tab);
+  };
+
+  useEffect(() => {
+    const handleHistory = () => {
+      if (view !== "dashboard" || !user) return;
+      setDashTab(resolveDashboardTab(window.location.search, !!user.isStaff,
+        user.isStaff ? "bookings" : "overview"));
+    };
+    window.addEventListener("popstate", handleHistory);
+    return () => window.removeEventListener("popstate", handleHistory);
+  }, [view, user]);
+
   const handleUpdateUser = async (nextUser) => {
     if (!nextUser?.id) return;
     await upsertProfile(nextUser.id, nextUser);
@@ -317,8 +344,8 @@ export default function NightlineApp() {
         ) : <ChatWidgetDemo user={publicChatProfile || user} />
       )}
       {view === "dashboard" && user && (
-        <DashboardShell go={(nextView) => (nextView === "login" ? handleLogout() : go(nextView))} active={dashTab} setActive={setDashTab} isStaff={user.isStaff}>
-          <ActivePage user={user} onUpdateUser={handleUpdateUser} />
+        <DashboardShell go={(nextView) => (nextView === "login" ? handleLogout() : go(nextView))} active={dashTab} setActive={navigateDashboard} isStaff={user.isStaff}>
+          <ActivePage user={user} onUpdateUser={handleUpdateUser} onNavigate={navigateDashboard} />
         </DashboardShell>
       )}
     </div>
