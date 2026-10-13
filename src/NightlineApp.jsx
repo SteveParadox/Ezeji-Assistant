@@ -283,12 +283,17 @@ export default function NightlineApp() {
     const selection = selectedPaidPlan(getStoredPlanSelection());
     // Without a saved expected plan, an old active subscription is not proof
     // that the latest redirected Paystack transaction was successful.
-    if (isSelectedPlanActive(current, selection)) {
+    // A lost local plan selection must not strand a provider-verified,
+    // atomically settled payment in an endless pending screen.
+    const entitlementReady = selection
+      ? isSelectedPlanActive(current, selection)
+      : current?.paymentStatus === "active";
+    if (entitlementReady) {
       clearCheckoutCallback();
       finishOwnerLogin(current);
       return true;
     }
-    return false;
+    throw new Error("Payment is confirmed, but subscription activation is still pending. Retry verification before paying again.");
   };
 
   const navigateDashboard = (tab) => {
