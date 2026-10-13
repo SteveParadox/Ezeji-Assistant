@@ -11,8 +11,8 @@ export function normalizeWorkingHours(rows) {
   if (!Array.isArray(rows)) return [];
   return rows.map((row) => ({
     ...row,
-    open: normalizeClockTime(row?.open) || "09:00",
-    close: normalizeClockTime(row?.close) || "17:00",
+    open: normalizeClockTime(row?.open),
+    close: normalizeClockTime(row?.close),
     closed: row?.closed === true,
   }));
 }
