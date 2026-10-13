@@ -8,7 +8,7 @@ import {
 } from "./authScreens";
 import {
   completeAuthCallback, ensureBusinessProfile, getRegistrationDetails,
-  readAuthCallback, hasAuthCallback, scrubAuthCallback, selectedPaidPlan, RECOVERY_FLAG,
+  readAuthCallback, hasAuthCallback, scrubAuthCallback, selectedPaidPlan, RECOVERY_FLAG, readRecovery, rememberRecovery,
 } from "./authLifecycle";
 import { DashboardShell, DASHBOARD_PAGES } from "./dashboardPages";
 import { ChatWidgetDemo } from "./chatWidget";
@@ -40,7 +40,7 @@ export default function NightlineApp() {
   const callbackPending = useRef(hasAuthCallback(readAuthCallback()));
   const recoveryMode = useRef(
     readAuthCallback().type === "recovery" ||
-    (typeof sessionStorage !== "undefined" && sessionStorage.getItem(RECOVERY_FLAG) === "active")
+    (typeof localStorage !== "undefined" && !!readRecovery())
   );
   const ActivePage = DASHBOARD_PAGES[dashTab];
 
@@ -72,9 +72,14 @@ export default function NightlineApp() {
     if (!nextSession?.user) return;
     setSession(nextSession);
     if (recoveryMode.current) {
-      setUser(null);
-      setView("resetPassword");
-      return;
+      const marker = readRecovery();
+      if (marker?.userId === nextSession.user.id) {
+        setUser(null);
+        setView("resetPassword");
+        return;
+      }
+      recoveryMode.current = false;
+      localStorage.removeItem(RECOVERY_FLAG);
     }
     if (getInitialViewFromUrl() === "chatDemo") return;
     setView("authLoading");
@@ -129,7 +134,7 @@ export default function NightlineApp() {
         if (!mounted || callbackPending.current) return;
         if (event === "PASSWORD_RECOVERY") {
           recoveryMode.current = true;
-          sessionStorage.setItem(RECOVERY_FLAG, "active");
+          if (nextSession) rememberRecovery(nextSession);
           if (nextSession) initializeSession(nextSession);
           return;
         }
@@ -160,7 +165,7 @@ export default function NightlineApp() {
           if (!mounted) return;
           if (callback.type === "recovery" || callback.otpType === "recovery") {
             recoveryMode.current = true;
-            sessionStorage.setItem(RECOVERY_FLAG, "active");
+            rememberRecovery(confirmed);
           }
           scrubAuthCallback();
           callbackPending.current = false;
@@ -168,7 +173,7 @@ export default function NightlineApp() {
         } catch (error) {
           if (!mounted) return;
           scrubAuthCallback();
-          sessionStorage.removeItem(RECOVERY_FLAG);
+          localStorage.removeItem(RECOVERY_FLAG);
           recoveryMode.current = false;
           callbackPending.current = false;
           setAuthError(error.message || "The verification or recovery link is invalid or expired.");
@@ -186,7 +191,7 @@ export default function NightlineApp() {
   }, [initializeSession]);
 
   const handleLogout = async () => {
-    sessionStorage.removeItem(RECOVERY_FLAG);
+    localStorage.removeItem(RECOVERY_FLAG);
     recoveryMode.current = false;
     await supabase.auth.signOut();
     setUser(null);
