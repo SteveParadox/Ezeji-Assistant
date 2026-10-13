@@ -66,8 +66,8 @@ create or replace function public.enforce_booking_transitions()
 returns trigger language plpgsql set search_path=pg_catalog,public
 as $function$
 begin
- if new.business_id is distinct from old.business_id or
-    new.client_request_id is distinct from old.client_request_id then
+ if tg_op='UPDATE' and (new.business_id is distinct from old.business_id or
+    new.client_request_id is distinct from old.client_request_id) then
    raise exception 'Booking ownership/idempotency cannot be changed' using errcode='42501';
  end if;
  if new.status='confirmed' then
@@ -77,7 +77,7 @@ begin
      raise exception 'Booking cannot be confirmed without a complete time and service' using errcode='23514';
    end if;
  end if;
- if new.status is distinct from old.status then
+ if tg_op='UPDATE' and new.status is distinct from old.status then
    if not (
      old.status='pending' and new.status in('confirmed','rejected','canceled')
      or old.status='confirmed' and new.status in('completed','canceled','no_show')
@@ -94,6 +94,10 @@ begin
  return new;
 end;
 $function$;
+drop trigger if exists booking_status_transition_guard on public.bookings;
+create trigger booking_status_transition_guard
+ before insert or update on public.bookings for each row
+ execute function public.enforce_booking_transitions();
 
 -- Ensure no legacy paid plan helper can authorize a new endpoint based on a
 -- stale profiles.payment_status value.
