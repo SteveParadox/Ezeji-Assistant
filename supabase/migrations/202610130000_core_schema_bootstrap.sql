@@ -140,4 +140,62 @@ revoke all on public.staff_members from anon,authenticated;
 drop policy if exists "Ezeji invoices owner" on public.invoices;
 create policy "Ezeji invoices owner" on public.invoices for select to authenticated using(business_id=auth.uid());
 revoke insert,update,delete on public.conversations from anon,authenticated;
+-- Strict owner access: legacy permissive profile policies must not grant
+-- tenant-wide updates. Only safe display fields are writable by clients.
+drop policy if exists "Ezeji owner profile update" on public.profiles;
+create policy "Ezeji owner profile update" on public.profiles
+ for update to authenticated using(id=auth.uid()) with check(id=auth.uid());
+drop policy if exists "Ezeji restrictive profile tenant" on public.profiles;
+create policy "Ezeji restrictive profile tenant" on public.profiles
+ as restrictive for all to authenticated
+ using(id=auth.uid()) with check(id=auth.uid());
+revoke select,insert,update,delete on public.profiles from anon;
+revoke update on public.profiles from authenticated;
+grant select on public.profiles to authenticated;
+grant update (name,business,business_type,custom_business_type,
+ service_name,price,hours,description,assistant_name,tone,greeting,
+ escalation_keywords,hours_json,address,city_state_zip,
+ disappearing_default,timezone,onboarding_completed_at,updated_at)
+ on public.profiles to authenticated;
+
+create or replace function public.protect_paid_plan_fields()
+returns trigger language plpgsql security definer
+set search_path=pg_catalog,public
+as $function$
+begin
+ if auth.role()='service_role' then return new; end if;
+ if tg_op='INSERT' then
+   new.plan:='14-day trial';new.payment_status:='trial';
+   new.trial_active:=true;new.trial_ends_at:=now()+interval '14 days';
+   new.billing_period:='monthly';new.currency:='NGN';
+ else
+   new.plan:=old.plan;new.payment_status:=old.payment_status;
+   new.trial_active:=old.trial_active;new.trial_ends_at:=old.trial_ends_at;
+   new.billing_period:=old.billing_period;new.currency:=old.currency;
+ end if;
+ return new;
+end;
+$function$;
+revoke all on function public.protect_paid_plan_fields() from public,anon,authenticated;
+drop trigger if exists protect_paid_plan_fields on public.profiles;
+create trigger protect_paid_plan_fields
+ before insert or update on public.profiles
+ for each row execute function public.protect_paid_plan_fields();
+
+drop policy if exists "Ezeji services tenant guard" on public.services;
+create policy "Ezeji services tenant guard" on public.services
+ as restrictive for all to authenticated using(business_id=auth.uid())
+ with check(business_id=auth.uid());
+drop policy if exists "Ezeji FAQs tenant guard" on public.faqs;
+create policy "Ezeji FAQs tenant guard" on public.faqs
+ as restrictive for all to authenticated using(business_id=auth.uid())
+ with check(business_id=auth.uid());
+drop policy if exists "Ezeji invoices tenant guard" on public.invoices;
+create policy "Ezeji invoices tenant guard" on public.invoices
+ as restrictive for select to authenticated using(business_id=auth.uid());
+revoke select,insert,update,delete on public.services,public.faqs from anon;
+grant select,insert,update,delete on public.services,public.faqs to authenticated;
+grant select on public.invoices to authenticated;
+grant select on public.bookings,public.conversations to authenticated;
+grant update on public.bookings to authenticated;
 commit;
