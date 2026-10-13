@@ -172,6 +172,18 @@ revoke all on function public.settle_paystack_payment(text,bigint,text,text,text
 grant execute on function public.settle_paystack_payment(text,bigint,text,text,text)
   to service_role;
 
+-- Deployment gate called before a customer can receive a Paystack URL.
+-- If this migration is absent, checkout fails closed.
+create or replace function public.paystack_settlement_ready()
+returns boolean language sql stable security definer
+set search_path = pg_catalog, public
+as $function$
+  select coalesce(auth.role(), '') = 'service_role'
+    and to_regclass('public.payment_attempts') is not null;
+$function$;
+revoke all on function public.paystack_settlement_ready() from PUBLIC, anon, authenticated;
+grant execute on function public.paystack_settlement_ready() to service_role;
+
 commit;
 
 -- Reconciliation: review and verify with Paystack before manually correcting.
