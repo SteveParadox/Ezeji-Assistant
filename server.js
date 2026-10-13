@@ -173,6 +173,9 @@ app.post('/assistant-reply', async (req,res)=>{
       p_idempotency_key:idempotencyKey,
     });
     if (reserveError) {
+      if (reserveError.code === 'P0003') {
+        return res.status(409).json({error:'This request was already accepted; do not submit it again.',code:'DUPLICATE_AI_REQUEST'});
+      }
       if (reserveError.code === 'P0001' || reserveError.code === '42501') {
         return res.status(429).json({reply:'This business has exhausted its available AI usage.',provider:'limit-reached',limitReached:true});
       }
