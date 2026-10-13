@@ -48,6 +48,10 @@ begin
  if coalesce(auth.role(),'')<>'service_role' then
    raise exception 'Only the worker can claim messages' using errcode='42501';
  end if;
+ update public.whatsapp_events
+   set status='dead',lease_until=null,last_error='Retry limit exhausted',
+     updated_at=now()
+   where status='processing' and attempts>=5 and lease_until<now();
  return query
  with candidate as (
    select id from public.whatsapp_events
