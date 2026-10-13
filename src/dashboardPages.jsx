@@ -619,7 +619,7 @@ export function StaffPage({ user }) {
     setNotice("");
     setSaving(true);
     try {
-      const { staffMember, inviteSent } = await staffApi("/staff/invite", {
+      const { staffMember, inviteSent, inviteUrl } = await staffApi("/staff/invite", {
         method: "POST",
         body: JSON.stringify({ email: email.trim().toLowerCase() }),
       });
