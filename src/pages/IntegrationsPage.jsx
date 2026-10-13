@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { TextField } from "../shared";
 import { useConfirmation, Skeleton, StatusBadge } from "../ui";
 import { hasActivePremiumPlan } from "../planAccess";
@@ -17,9 +17,11 @@ export function IntegrationsPage({ user }) {
   const [testState, setTestState] = useState("idle");
   const [connectionError, setConnectionError] = useState("");
   const [businessNumber, setBusinessNumber] = useState("");
+  const operationInFlight = useRef(false);
+  const busy = testState !== "idle";
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !canConnect) { setLoading(false); return; }
     let cancelled=false;
     workspaceApi("/integrations/whatsapp")
       .then(({connection})=>{
@@ -29,10 +31,12 @@ export function IntegrationsPage({ user }) {
       .catch(error=>{if(!cancelled)setConnectionError(error.message||"Connection status unavailable");})
       .finally(()=>{if(!cancelled)setLoading(false);});
     return ()=>{cancelled=true;};
-  },[user?.id]);
+  },[user?.id, canConnect]);
 
   const save=async()=>{
+    if(operationInFlight.current || !canConnect) return;
     if(!phoneNumberId.trim()||!accessToken.trim()){setConnectionError("Enter a phone number ID and a new access token.");return;}
+    operationInFlight.current = true;
     setConnectionError("");setTestState("testing");
     try {
       const {connection}=await workspaceApi("/integrations/whatsapp",{
@@ -41,15 +45,20 @@ export function IntegrationsPage({ user }) {
       setConnected(true);setBusinessNumber(connection?.displayPhoneNumber||"");
       setAccessToken("");setSaveState("saved");
     }catch(error){setConnectionError(error.message||"Could not connect WhatsApp");}
-    finally{setTestState("idle");}
+    finally{operationInFlight.current = false;setTestState("idle");}
   };
   const disconnect=async()=>{
+    if(operationInFlight.current || !canConnect) return;
     if (!await confirm({ title: "Disconnect WhatsApp?", description: "This business will stop receiving assistant replies through the saved WhatsApp connection.", action: "Disconnect" })) return;
+    if(operationInFlight.current) return;
+    operationInFlight.current = true;
+    setTestState("disconnecting");
     setConnectionError("");
     try{
       await workspaceApi("/integrations/whatsapp",{method:"DELETE"});
       setConnected(false);setPhoneNumberId("");setAccessToken("");setBusinessNumber("");setSaveState("idle");
     }catch(error){setConnectionError(error.message||"Could not disconnect WhatsApp");}
+    finally{operationInFlight.current = false;setTestState("idle");}
   };
 
   // Never suggest localhost as a production callback: Meta cannot reach it.
@@ -91,8 +100,8 @@ export function IntegrationsPage({ user }) {
             {connectionError && <p className="auth-error" role="alert">{connectionError}</p>}
             {saveState === "saved" && <p className="save-status" role="status">Saved successfully</p>}
             <div className="billing-actions">
-              <button className="btn btn--amber" onClick={save} disabled={testState === "testing"}>{testState === "testing" ? "Verifying with Meta..." : connected ? "Update connection" : "Connect WhatsApp"}</button>
-              {connected && <button className="btn btn--outline" onClick={disconnect}>Disconnect</button>}
+              <button className="btn btn--amber" onClick={save} disabled={busy}>{testState === "testing" ? "Verifying with Meta..." : connected ? "Update connection" : "Connect WhatsApp"}</button>
+              {connected && <button className="btn btn--outline" onClick={disconnect} disabled={busy}>Disconnect</button>}
             </div>
           </div>
         )}
