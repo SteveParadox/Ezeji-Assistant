@@ -89,8 +89,15 @@ export async function resolveSignedInUser(authUser, accessToken) {
       const selected = typeof sessionStorage !== "undefined"
         ? sessionStorage.getItem("ezeji-staff-business") : null;
       const query = selected ? "?businessId=" + encodeURIComponent(selected) : "";
-      return fetch(`${API_BASE_URL}/staff/me${query}`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const headers = { Authorization: `Bearer ${token}` };
+      return fetch(`${API_BASE_URL}/staff/me${query}`, { headers }).then(async response => {
+        if (selected && response.status === 403) {
+          // A previous account's saved business context must never trap a
+          // newly signed-in member in an unauthorized selection loop.
+          sessionStorage.removeItem("ezeji-staff-business");
+          return fetch(`${API_BASE_URL}/staff/me`, { headers });
+        }
+        return response;
       });
     },
   });
