@@ -79,6 +79,7 @@ async function generateAssistantReply({ message, profile, conversation, systemPr
 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`,
@@ -208,6 +209,7 @@ async function handlePaystackCheckout({ unitAmount, email, plan, billingPeriod, 
 
   const initResponse = await fetch('https://api.paystack.co/transaction/initialize', {
     method: 'POST',
+    signal: AbortSignal.timeout(15000),
     headers: {
       Authorization: `Bearer ${paystackKey}`,
       'Content-Type': 'application/json',
@@ -331,6 +333,8 @@ app.get('/verify-paystack/:reference', async (req, res) => {
   }
 });
 
+app.get('/health', (req,res) => res.json({status:'alive'}));
+
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
   console.error('API request error:', error);
@@ -344,7 +348,7 @@ app.get('/webhook/whatsapp', (req, res) => {
   const token = req.query['hub.verify_token'];
   const challenge = req.query['hub.challenge'];
 
-  if (mode === 'subscribe' && token === process.env.WHATSAPP_VERIFY_TOKEN) {
+  if (mode === 'subscribe' && process.env.WHATSAPP_VERIFY_TOKEN && token === process.env.WHATSAPP_VERIFY_TOKEN) {
     return res.status(200).send(challenge);
   }
   return res.sendStatus(403);
@@ -387,6 +391,8 @@ app.post('/webhook/whatsapp', async (req, res) => {
     }
 
     const businessId = connection.business_id;
+    const usage = await checkUsageLimit(businessId);
+    if (!usage.allowed) { console.warn('WhatsApp subscription or quota denied', businessId); return; }
 
     const [{ data: profile }, { data: faqs }, { data: services }] = await Promise.all([
       supabase.from('profiles').select('*').eq('id', businessId).maybeSingle(),
