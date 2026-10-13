@@ -52,6 +52,21 @@ export async function fetchProfile(userId, email, userMetadata = {}) {
   }
   if (!data) return null;
 
+  let paidSubscription = null;
+  if (data.plan !== "14-day trial") {
+    const { data: subscription, error: subscriptionError } = await supabase.from("subscriptions")
+      .select("plan,billing_period,status,current_period_end,grace_period_ends_at,cancel_at_period_end")
+      .eq("business_id", data.id).maybeSingle();
+    if (subscriptionError) throw new Error("Unable to validate your subscription. Please retry.");
+    paidSubscription = subscription;
+  }
+  const subscriptionValid = paidSubscription && (
+    (["active", "cancellation_scheduled"].includes(paidSubscription.status) &&
+      Date.parse(paidSubscription.current_period_end) > Date.now()) ||
+    (paidSubscription.status === "grace" &&
+      Date.parse(paidSubscription.grace_period_ends_at) > Date.now())
+  );
+
   return {
     id: data.id,
     email,
@@ -63,10 +78,12 @@ export async function fetchProfile(userId, email, userMetadata = {}) {
     price: data.price,
     hours: data.hours,
     description: data.description,
-    plan: data.plan,
-    billingPeriod: data.billing_period,
+    plan: paidSubscription?.plan || data.plan,
+    billingPeriod: paidSubscription?.billing_period || data.billing_period,
     currency: data.currency,
-    paymentStatus: data.payment_status,
+    paymentStatus: data.plan === "14-day trial" ? data.payment_status : (subscriptionValid ? "active" : "expired"),
+    subscriptionEndsAt: paidSubscription?.current_period_end || null,
+    cancelAtPeriodEnd: paidSubscription?.cancel_at_period_end === true,
     trialActive: data.trial_active,
     trialEndsAt: data.trial_ends_at,
     assistantName: data.assistant_name,
