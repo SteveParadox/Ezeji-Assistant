@@ -33,3 +33,14 @@ services:
       # Configure SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
       # WHATSAPP_TOKEN_ENCRYPTION_KEY, GROQ_API_KEY, GROQ_MODEL
       # and WHATSAPP_GRAPH_VERSION as dashboard-managed settings.
+
+  - type: cron
+    name: ezeji-assistant-maintenance
+    runtime: node
+    schedule: "* * * * *"
+    buildCommand: npm ci
+    startCommand: node scripts/assistant-maintenance.js
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are dashboard secrets.

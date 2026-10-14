@@ -8,8 +8,7 @@ import { ensureOwnerBusiness } from './server/businessProvisioning.js';
 import { newPaystackReference, PAYSTACK_REFERENCE_PATTERN, parseVerifiedPaystackTransaction, paymentMatchesAttempt, isTrustedPaystackCheckoutUrl } from './server/paystackSettlement.js';
 import { attachWhatsAppRoutes } from './server/whatsappConnections.js';
 import { attachOwnerUsageRoute } from './server/ownerUsage.js';
-import { attachAssistantPreviewRoute } from './server/assistantPreview.js';
-import { buildAssistantSystemPrompt } from './server/assistantPrompt.js';
+import { attachAssistantRoutes } from './server/assistantRoutes.js';
 import { PLAN_PRICE_NGN_KOBO } from './shared/planCatalog.js';
 import { serviceDurationMinutes, validateBookingWindow } from './server/bookingValidation.js';
 
@@ -49,75 +48,6 @@ app.use(express.json({
   },
 }));
 
-// Shared brain: both the web chat widget's /assistant-reply route AND the
-// WhatsApp webhook call this same function, so a customer gets identically
-// smart, identically-informed answers no matter which channel they use.
-async function generateAssistantReply({ message, profile, conversation, systemPrompt, businessId }) {
-  const apiKey = process.env.GROQ_API_KEY;
-
-  if (!apiKey) {
-    return {
-      reply: "I'm not fully connected yet - my AI service isn't configured. A team member will follow up with you shortly.",
-      provider: 'unconfigured',
-    };
-  }
-
-  // No AI-generated confirmed booking until independent, atomic availability validation exists.
-  const tools = undefined;
-
-  const baseMessages = [
-    {
-      role: 'system',
-      content: systemPrompt || `You are a warm concierge assistant for a local business. Help with bookings, availability, and questions in a natural way.`,
-    },
-    {
-      role: 'system',
-      content: JSON.stringify({ profile: profile || {} }),
-    },
-    ...(conversation || []).map((item) => ({
-      role: item.from === 'ai' ? 'assistant' : 'user',
-      content: item.text || '',
-    })),
-    {
-      role: 'user',
-      content: message || '',
-    },
-  ];
-
-  const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    signal: AbortSignal.timeout(15000),
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: process.env.GROQ_MODEL || 'openai/gpt-oss-20b',
-      temperature: 0.8,
-      max_tokens: Math.min(1000, Number(process.env.GROQ_MAX_REPLY_TOKENS) || 500),
-      messages: baseMessages,
-      ...(tools ? { tools, tool_choice: 'auto' } : {}),
-    }),
-  });
-
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload.error?.message || 'AI request failed.');
-  }
-
-  const responseMessage = payload.choices?.[0]?.message;
-  return { reply: cleanAssistantReply(responseMessage?.content || 'I can help with that.'), provider: 'groq', booked: false };
-}
-
-function cleanAssistantReply(text) {
-  return `${text || ''}`
-    .replace(/\*+/g, '')
-    .replace(/`+/g, '')
-    .replace(/^\s*#+\s*/gm, '')
-    .replace(/[ \t]{2,}/g, ' ')
-    .trim();
-}
-
 // Narrow public storefront endpoint: customers can obtain public-facing facts
 // by business UUID, never full profiles or private tenant records.
 app.get('/public-business/:businessId', async (req,res) => {
@@ -149,64 +79,6 @@ app.get('/public-business/:businessId', async (req,res) => {
   }catch(error){
     console.error('Public business lookup error',error.message);
     return res.status(503).json({error:'Business information temporarily unavailable'});
-  }
-});
-
-app.post('/assistant-reply', async (req,res)=>{
-  let reservedId = null;
-  try {
-    const {message,businessId,conversation,requestId}=req.body||{};
-    if(typeof businessId!=='string'|| !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(businessId)) return res.status(400).json({error:'Invalid business'});
-    if(typeof message!=='string'||!message.trim()||message.length>2000) return res.status(400).json({error:'Invalid message'});
-    if(conversation!==undefined && (!Array.isArray(conversation)||conversation.length>12||conversation.some(x=>!x||!['customer','ai'].includes(x.from)||typeof x.text!=='string'||x.text.length>2000))) return res.status(400).json({error:'Invalid history'});
-    if(!supabase) return res.status(503).json({error:'Service unavailable'});
-    const [prof,faq,services]=await Promise.all([
-      supabase.from('profiles').select('id,business,plan,service_name,price,hours,description,assistant_name,tone,greeting,escalation_keywords,hours_json').eq('id',businessId).maybeSingle(),
-      supabase.from('faqs').select('question,answer').eq('business_id',businessId).limit(60),
-      supabase.from('services').select('name,price,duration').eq('business_id',businessId).limit(60)
-    ]);
-    if(prof.error||faq.error||services.error) return res.status(503).json({error:'Business lookup unavailable'});
-    if(!prof.data) return res.status(404).json({error:'Business not found'});
-    const idempotencyKey = typeof requestId === 'string' &&
-      /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(requestId)
-      ? requestId : crypto.randomUUID();
-    const periodKey = new Date().toISOString().slice(0,7);
-    const profileUsage = await supabase.from('profiles')
-      .select('plan').eq('id',businessId).maybeSingle();
-    if (profileUsage.error || !profileUsage.data) throw new Error('Usage account unavailable');
-    const {data: reservation, error:reserveError} = await supabase.rpc('reserve_ai_usage',{
-      p_business_id:businessId,
-      p_period_key:profileUsage.data.plan === '14-day trial' ? 'trial' : periodKey,
-      p_idempotency_key:idempotencyKey,
-    });
-    if (reserveError) {
-      if (reserveError.code === 'P0003') {
-        return res.status(409).json({error:'This request was already accepted; do not submit it again.',code:'DUPLICATE_AI_REQUEST'});
-      }
-      if (reserveError.code === 'P0001' || reserveError.code === 'P0004' || reserveError.code === '42501') {
-        return res.status(429).json({reply:'This business has exhausted its available AI usage.',provider:'limit-reached',limitReached:true});
-      }
-      throw reserveError;
-    }
-    reservedId = reservation;
-    const p=prof.data;
-    const systemPrompt=buildAssistantSystemPrompt(p, services.data||[], faq.data||[]);
-    const result=await generateAssistantReply({message:message.trim(),profile:{business:p.business,serviceName:p.service_name,price:p.price,hours:p.hours},conversation:conversation||[],systemPrompt});
-    if(result.provider==='groq') {
-      const {error:writeError}=await supabase.from('conversations').insert({business_id:businessId,customer_message:message.trim(),ai_reply:result.reply,escalated:false,booking_intent:/book|reserve|appointment/i.test(message)});
-      if(writeError) throw new Error('Conversation persistence unavailable');
-    }
-    const {error:finalError}=await supabase.rpc('finalize_ai_usage',{p_reservation_id:reservedId,p_success:result.provider==='groq'});
-    if(finalError) throw finalError;
-    reservedId=null;
-    return res.json(result);
-  } catch(error) {
-    if(reservedId && supabase) {
-      const {error:releaseError}=await supabase.rpc('finalize_ai_usage',{p_reservation_id:reservedId,p_success:false});
-      if(releaseError) console.error('Usage reservation release error:',releaseError.message);
-    }
-    console.error('assistant-reply error:',error.message);
-    return res.status(503).json({error:'Assistant temporarily unavailable'});
   }
 });
 
@@ -584,6 +456,8 @@ app.get('/health/ready', async(req,res)=>{
   try {
     const {data,error}=await supabase.rpc('production_billing_ready');
     if(error||data!==true)throw new Error('required migrations unavailable');
+    const assistantReady=await supabase.rpc('assistant_schema_ready');
+    if(assistantReady.error||assistantReady.data!==true)throw new Error('Assistant migrations unavailable');
     const {error:dbError}=await supabase.from('profiles').select('id',{head:true,count:'exact'}).limit(1);
     if(dbError)throw dbError;
     return res.json({status:'ready',database:'ready',billingMigrations:'ready',
@@ -639,7 +513,7 @@ app.post('/webhook/whatsapp', async (req, res) => {
         if (connectionError) throw connectionError;
         if (!connection) continue;
         for (const message of (Array.isArray(value?.messages) ? value.messages : [])) {
-          if (message?.type !== 'text' || !message?.id || !message?.from) continue;
+          if (message?.type !== 'text' || typeof message.id!=='string' || message.id.length>200 || !/^\d{8,20}$/.test(String(message.from||''))) continue;
           const text = String(message.text?.body || '').trim().slice(0,2000);
           if (!text) continue;
           const { error: persistedError } = await supabase.from('whatsapp_events').upsert({
@@ -647,6 +521,7 @@ app.post('/webhook/whatsapp', async (req, res) => {
             provider_event_id:String(message.id),
             phone_number_id:phoneNumberId,
             sender_phone:String(message.from),
+            message_occurred_at:/^\d{9,12}$/.test(String(message.timestamp||'')) ? new Date(Number(message.timestamp)*1000).toISOString() : null,
             customer_text:text,
             kind:'inbound',
             status:'queued',
@@ -686,6 +561,6 @@ if (!process.env.VERCEL) {
 attachStaffRoutes(app,supabase);
 
 attachWhatsAppRoutes(app,supabase);
-attachAssistantPreviewRoute(app, supabase, generateAssistantReply);
+attachAssistantRoutes(app, supabase);
 
 export default app;

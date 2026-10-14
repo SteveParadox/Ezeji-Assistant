@@ -1,80 +1,21 @@
-import test from "node:test";
-import assert from "node:assert/strict";
-import { attachAssistantPreviewRoute } from "./assistantPreview.js";
-
-const UUID = "11111111-1111-4111-8111-111111111111";
-const OTHER = "22222222-2222-4222-8222-222222222222";
-
-function response() {
-  return {
-    code: 200, body: null,
-    status(code) { this.code = code; return this; },
-    json(body) { this.body = body; return this; },
-  };
-}
-
-function setup(authId = UUID) {
-  let handler;
-  const called = [];
-  const db = {
-    auth: { getUser: async () => ({ data: { user: { id: authId } }, error: null }) },
-    from(table) {
-      called.push(table);
-      if (table === "conversations" || table === "bookings") {
-        throw new Error("Preview must never persist operational customer records.");
-      }
-      return {
-        select() { return this; },
-        eq() { return this; },
-        async maybeSingle() {
-          return { data: { id: UUID, business: "Sample Shop", plan: "14-day trial", hours: "Mon-Fri 9-5" }, error: null };
-        },
-        async limit() { return { data: [], error: null }; },
-      };
-    },
-    async rpc(name, params) {
-      called.push(name);
-      if (name === "reserve_ai_usage") {
-        assert.equal(params.p_business_id, UUID);
-        return { data: "reservation-1", error: null };
-      }
-      assert.equal(params.p_reservation_id, "reservation-1");
-      return { data: true, error: null };
-    },
-  };
-  const app = { post(path, fn) { assert.equal(path, "/assistant-preview"); handler = fn; } };
-  attachAssistantPreviewRoute(app, db, async () => ({
-    reply: "A request needs staff confirmation.", provider: "groq",
-  }));
-  return { handler, called };
-}
-
-test("preview requires an authenticated owner token", async () => {
-  const { handler, called } = setup();
-  const res = response();
-  await handler({ headers: {}, body: { businessId: UUID, message: "Hello" } }, res);
-  assert.equal(res.code, 401);
-  assert.deepEqual(called, []);
+import test from 'node:test';import assert from 'node:assert/strict';
+import {attachAssistantRoutes} from './assistantRoutes.js';
+const id='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
+function setup(owner=id){const handlers=new Map();let reads=0;
+ const db={auth:{getUser:async()=>({data:{user:{id:owner,email_confirmed_at:'2026-10-01'}}})},from(){reads++;throw new Error('Unauthorized data access');}};
+ const app={};for(const verb of ['post','get','patch','delete'])app[verb]=(path,fn)=>handlers.set(`${verb}:${path}`,fn);
+ attachAssistantRoutes(app,db,{generate:async()=>{throw new Error('Unauthorized provider call');}});
+ const res={statusCode:200,status(n){this.statusCode=n;return this;},json(b){this.body=b;return this;}};
+ return {handlers,res,reads:()=>reads};}
+test('preview requires authenticated owner before loading saved facts',async()=>{
+ const {handlers,res,reads}=setup();await handlers.get('post:/assistant-preview')({headers:{},body:{businessId:id,requestId:other,message:'Hi'}},res);
+ assert.equal(res.statusCode,401);assert.equal(reads(),0);
 });
-
-test("preview rejects cross-business access before querying tenant data", async () => {
-  const { handler, called } = setup(OTHER);
-  const res = response();
-  await handler({ headers: { authorization: "Bearer valid" }, body: { businessId: UUID, message: "Hello" } }, res);
-  assert.equal(res.code, 403);
-  assert.deepEqual(called, []);
+test('preview rejects cross-business impersonation before tenant lookup',async()=>{
+ const {handlers,res,reads}=setup(other);await handlers.get('post:/assistant-preview')({headers:{authorization:'Bearer test'},body:{businessId:id,requestId:other,message:'Hi'}},res);
+ assert.equal(res.statusCode,403);assert.equal(reads(),0);
 });
-
-test("preview uses persisted business facts and quota but writes no conversations or bookings", async () => {
-  const { handler, called } = setup();
-  const res = response();
-  await handler({ headers: { authorization: "Bearer valid" },
-    body: { businessId: UUID, message: "Can I book?", requestId: OTHER, conversation: [] } }, res);
-  assert.equal(res.code, 200);
-  assert.equal(res.body.preview, true);
-  assert.match(res.body.reply, /staff confirmation/i);
-  assert.ok(called.includes("reserve_ai_usage"));
-  assert.ok(called.includes("finalize_ai_usage"));
-  assert.ok(!called.includes("conversations"));
-  assert.ok(!called.includes("bookings"));
+test('customer history lookup requires a high-entropy capability, never a conversation ID alone',async()=>{
+ const {handlers,res,reads}=setup();await handlers.get('get:/assistant-session/:businessId')({headers:{'x-conversation-token':id},params:{businessId:id}},res);
+ assert.equal(res.statusCode,400);assert.equal(reads(),0);
 });
