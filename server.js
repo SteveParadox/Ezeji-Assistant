@@ -7,6 +7,10 @@ import { attachStaffRoutes } from './server/staffRoutes.js';
 import { ensureOwnerBusiness } from './server/businessProvisioning.js';
 import { newPaystackReference, PAYSTACK_REFERENCE_PATTERN, parseVerifiedPaystackTransaction, paymentMatchesAttempt, isTrustedPaystackCheckoutUrl } from './server/paystackSettlement.js';
 import { attachWhatsAppRoutes } from './server/whatsappConnections.js';
+import { attachOwnerUsageRoute } from './server/ownerUsage.js';
+import { attachAssistantPreviewRoute } from './server/assistantPreview.js';
+import { buildAssistantSystemPrompt } from './server/assistantPrompt.js';
+import { PLAN_PRICE_NGN_KOBO } from './shared/planCatalog.js';
 import { serviceDurationMinutes, validateBookingWindow } from './server/bookingValidation.js';
 
 dotenv.config();
@@ -157,7 +161,7 @@ app.post('/assistant-reply', async (req,res)=>{
     if(conversation!==undefined && (!Array.isArray(conversation)||conversation.length>12||conversation.some(x=>!x||!['customer','ai'].includes(x.from)||typeof x.text!=='string'||x.text.length>2000))) return res.status(400).json({error:'Invalid history'});
     if(!supabase) return res.status(503).json({error:'Service unavailable'});
     const [prof,faq,services]=await Promise.all([
-      supabase.from('profiles').select('id,business,service_name,price,hours,description').eq('id',businessId).maybeSingle(),
+      supabase.from('profiles').select('id,business,plan,service_name,price,hours,description,assistant_name,tone,greeting,escalation_keywords,hours_json').eq('id',businessId).maybeSingle(),
       supabase.from('faqs').select('question,answer').eq('business_id',businessId).limit(60),
       supabase.from('services').select('name,price,duration').eq('business_id',businessId).limit(60)
     ]);
@@ -186,7 +190,7 @@ app.post('/assistant-reply', async (req,res)=>{
     }
     reservedId = reservation;
     const p=prof.data;
-    const systemPrompt=`You are a customer assistant for ${p.business}. Answer using only business facts provided below. Do not invent availability or claim any booking is confirmed. Booking requests must be confirmed by staff. Hours: ${p.hours||'Not provided'}. Description: ${p.description||''}. Services: ${JSON.stringify(services.data||[])}. FAQs: ${JSON.stringify(faq.data||[])}`;
+    const systemPrompt=buildAssistantSystemPrompt(p, services.data||[], faq.data||[]);
     const result=await generateAssistantReply({message:message.trim(),profile:{business:p.business,serviceName:p.service_name,price:p.price,hours:p.hours},conversation:conversation||[],systemPrompt});
     if(result.provider==='groq') {
       const {error:writeError}=await supabase.from('conversations').insert({business_id:businessId,customer_message:message.trim(),ai_reply:result.reply,escalated:false,booking_intent:/book|reserve|appointment/i.test(message)});
@@ -206,17 +210,9 @@ app.post('/assistant-reply', async (req,res)=>{
   }
 });
 
-// Real NGN pricing, in kobo (Paystack's smallest currency unit for NGN,
-// same idea as cents). Priced directly in Naira - fair, round numbers in
-// the spirit of ChatGPT Plus's pricing, not derived from a USD figure.
-// Yearly = 10x monthly (2 months free). Must match the Pricing component's
-// `plans` array in NightlineLanding.jsx exactly, or the price shown won't
-// match the price charged.
-const PRICE_MAP_NGN_KOBO = {
-  Starter: { monthly: 1500000, yearly: 15000000 },       // NGN 15,000 / NGN 150,000
-  Professional: { monthly: 3500000, yearly: 35000000 },   // NGN 35,000 / NGN 350,000
-  Business: { monthly: 7500000, yearly: 75000000 },       // NGN 75,000 / NGN 750,000
-};
+// All Paystack checkout prices originate from the shared, immutable NGN
+// catalog. The backend remains authoritative when creating payment attempts.
+const PRICE_MAP_NGN_KOBO = PLAN_PRICE_NGN_KOBO;
 
 // The service-role database client is server-only. The bearer token is
 // verified on every request, and the owner ID is always derived from it.
@@ -580,6 +576,8 @@ app.post('/booking-requests', async (req,res) => {
   }
 });
 
+attachOwnerUsageRoute(app, supabase);
+
 app.get('/health', (req,res) => res.json({status:'alive'}));
 app.get('/health/ready', async(req,res)=>{
   if(!supabase)return res.status(503).json({status:'not_ready',reason:'database'});
@@ -688,5 +686,6 @@ if (!process.env.VERCEL) {
 attachStaffRoutes(app,supabase);
 
 attachWhatsAppRoutes(app,supabase);
+attachAssistantPreviewRoute(app, supabase, generateAssistantReply);
 
 export default app;

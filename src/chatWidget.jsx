@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from "react";
-import { buildOfflineFallbackReply, buildAssistantRequestPayload } from "./assistantLogic";
+import { buildOfflineFallbackReply } from "./assistantLogic";
+import { buildChatSendPayload } from "./chatRequest";
 import { Clock, Trash2, Send, X, MessageCircle, AlertTriangle, Mic, MicOff } from "lucide-react";
 import { API_BASE_URL } from "./shared";
+import { supabase } from "./supabaseClient";
 
 export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   const [open, setOpen] = useState(true);
@@ -16,6 +18,8 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   const [isListening, setIsListening] = useState(false);
   const [voiceSupported, setVoiceSupported] = useState(false);
   const recognitionRef = useRef(null);
+  const requestGeneration = useRef(0);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     setVoiceSupported(Boolean(window.SpeechRecognition || window.webkitSpeechRecognition));
@@ -31,13 +35,13 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   const disappearingKey = `nightline-disappearing-messages-${storageScope}`;
 
   const [disappearing, setDisappearing] = useState(() => {
-    if (typeof window === "undefined") return true;
+    if (previewOnly || typeof window === "undefined") return true;
     const stored = window.localStorage.getItem(disappearingKey);
     if (stored !== null) return stored === "true";
     return user?.disappearingDefault !== false;
   });
   const [messages, setMessages] = useState(() => {
-    if (typeof window === "undefined") return [];
+    if (previewOnly || typeof window === "undefined") return [{from:"ai",text:`Hi! This is ${user?.business || "your business"}'s private assistant preview.`}];
     try {
       const raw = window.localStorage.getItem(chatHistoryKey);
       if (raw) {
@@ -58,9 +62,15 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   // changes, in case this widget stays mounted across an account switch
   // instead of remounting fresh.
   useEffect(() => {
+    // A reply started for the previous business must never appear in the
+    // newly selected business conversation after account switching.
+    requestGeneration.current += 1;
+    sendingRef.current = false;
+    setIsTyping(false);
+    setKnowledge({ faqs: [], services: [] });
     if (typeof window === "undefined") return;
     try {
-      const raw = window.localStorage.getItem(chatHistoryKey);
+      const raw = previewOnly ? null : window.localStorage.getItem(chatHistoryKey);
       setMessages(raw ? JSON.parse(raw) : [
         {
           from: "ai",
@@ -68,7 +78,8 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
         },
       ]);
       const storedDisappearing = window.localStorage.getItem(disappearingKey);
-      setDisappearing(storedDisappearing !== null ? storedDisappearing === "true" : user?.disappearingDefault !== false);
+      setDisappearing(previewOnly ? true :
+        storedDisappearing !== null ? storedDisappearing === "true" : user?.disappearingDefault !== false);
     } catch {
       // ignore
     }
@@ -81,25 +92,25 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   }, []);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (!previewOnly && typeof window !== "undefined") {
       window.localStorage.setItem(disappearingKey, String(disappearing));
     }
-  }, [disappearing, disappearingKey]);
+  }, [disappearing, disappearingKey, previewOnly]);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (!previewOnly && typeof window !== "undefined") {
       if (disappearing) {
         window.localStorage.removeItem(chatHistoryKey);
       } else {
         window.localStorage.setItem(chatHistoryKey, JSON.stringify(messages));
       }
     }
-  }, [messages, disappearing, chatHistoryKey]);
+  }, [messages, disappearing, chatHistoryKey, previewOnly]);
 
   const [knowledge, setKnowledge] = useState({ faqs: [], services: [] });
 
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || previewOnly) return;
     let cancelled = false;
     fetch(`${API_BASE_URL}/public-business/${encodeURIComponent(user.id)}`)
       .then(async response=>{
@@ -113,10 +124,14 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
         if(!cancelled){setKnowledge({faqs:[],services:[]});console.error("Knowledge lookup error",error.message);}
       });
     return () => { cancelled = true; };
-  }, [user?.id]);
+  }, [user?.id, previewOnly]);
 
   const clearChat = () => {
-    if (typeof window !== "undefined") {
+    // Ignore replies from a request the user explicitly discarded.
+    requestGeneration.current += 1;
+    sendingRef.current = false;
+    setIsTyping(false);
+    if (!previewOnly && typeof window !== "undefined") {
       window.localStorage.removeItem(chatHistoryKey);
     }
     setMessages([
@@ -130,9 +145,11 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   };
 
   const send = async (text) => {
-    if (!enabled) return;
+    if (!enabled || sendingRef.current) return;
     const nextText = `${text || draft || ""}`.trim();
-    if (!nextText) return;
+    if (!nextText || !user?.id) return;
+    sendingRef.current = true;
+    const generation = requestGeneration.current;
 
     const nextConversation = [...messages, { from: "customer", text: nextText }];
     setMessages(nextConversation);
@@ -148,12 +165,20 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
     }
 
     try {
-      const payload = buildAssistantRequestPayload(nextText, user, nextConversation, knowledge, { previewOnly });
+      const payload = buildChatSendPayload(nextText, user, messages, knowledge, previewOnly);
       payload.requestId = crypto.randomUUID();
       setIsTyping(true);
-      const response = await fetch(`${API_BASE_URL}/assistant-reply`, {
+      // Preview must be authorized as the owner and must not create customer records.
+      const accessToken = previewOnly
+        ? (await supabase.auth.getSession()).data.session?.access_token
+        : null;
+      if (previewOnly && !accessToken) throw new Error("Sign in to test your assistant.");
+      const response = await fetch(`${API_BASE_URL}/${previewOnly ? "assistant-preview" : "assistant-reply"}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+        },
         body: JSON.stringify(payload),
       });
 
@@ -163,9 +188,11 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
       }
 
       const data = await response.json();
+      if (generation !== requestGeneration.current) return;
       setIsTyping(false);
       setMessages((m) => [...m, { from: "ai", text: data.reply }]);
     } catch (err) {
+      if (generation !== requestGeneration.current) return;
       console.error("assistant-reply request failed:", err);
       setIsTyping(false);
       setConnectionIssue(true);
@@ -174,6 +201,8 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
         ...m,
         { from: "ai", text: fallback, offline: true },
       ]);
+    } finally {
+      if (generation === requestGeneration.current) sendingRef.current = false;
     }
   };
 
@@ -243,7 +272,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
 
   return (
     <div className="widget-demo-stage">
-      <p className="widget-demo-caption">This is the embeddable widget your customers see on your site.</p>
+      <p className="widget-demo-caption">{previewOnly ? "Private assistant preview. Messages here do not create customer bookings or conversations." : "Customer web chat. Successful messages may be recorded by the business. Booking requests require staff confirmation."}</p>
       {open && (
         <div className="widget-panel">
           <div className="widget-header">
@@ -257,19 +286,21 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
             <div className="widget-header-right">
               <span className="widget-status">
                 <span className="widget-status-dot" />
-                <span className="widget-status-label mono">AI online</span>
+                <span className="widget-status-label mono">{previewOnly ? "Preview" : "Customer chat"}</span>
               </span>
-              <button
+              {!previewOnly && <button
                 className={`icon-btn ${disappearing ? "icon-btn--active" : ""}`}
                 onClick={() => setDisappearing((d) => !d)}
-                title={disappearing ? "Disappearing messages: on" : "Disappearing messages: off"}
+                aria-label={disappearing ? "Stop storing messages on this device: on" : "Stop storing messages on this device: off"}
+                aria-pressed={disappearing}
+                title={disappearing ? "Device history: off" : "Device history: on"}
               >
                 <Clock className="icon-btn-icon" />
-              </button>
-              <button className="icon-btn" onClick={clearChat} title="Clear chat">
+              </button>}
+              <button className="icon-btn" onClick={clearChat} aria-label="Clear chat" title="Clear chat">
                 <Trash2 className="icon-btn-icon" />
               </button>
-              <button className="icon-btn" onClick={() => setOpen(false)}><X className="icon-btn-icon" /></button>
+              <button className="icon-btn" aria-label="Close chat" onClick={() => setOpen(false)}><X className="icon-btn-icon" /></button>
             </div>
           </div>
           <div className="widget-body">
@@ -279,9 +310,9 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
                 Couldn't reach the AI server - showing a basic offline reply below, not the real AI.
               </div>
             )}
-            {disappearing && (
+            {disappearing && !previewOnly && (
               <div className="widget-disappearing-note">
-                Disappearing messages is on - this chat won't be saved.
+                Device history is off. Messages are not kept in this browser's local history, but the business may still retain customer exchanges on its server.
               </div>
             )}
             {messages.map((m, i) => (
@@ -301,18 +332,18 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
               <div className="panel" style={{padding:12,marginTop:10}}>
                 <p className="panel-title">Request an appointment</p>
                 <p className="panel-help">Times are entered in your device timezone. Staff must confirm the request.</p>
-                <input className="field-input" placeholder="Your name" value={booking.name}
+                <input className="field-input" aria-label="Customer name" placeholder="Your name" value={booking.name}
                   onChange={e=>setBooking(b=>({...b,name:e.target.value}))} />
-                <input className="field-input" placeholder="Email or phone" value={booking.contact}
+                <input className="field-input" aria-label="Customer email or phone" placeholder="Email or phone" value={booking.contact}
                   onChange={e=>setBooking(b=>({...b,contact:e.target.value}))} />
-                <select className="field-input" value={booking.serviceId}
+                <select aria-label="Booking service" className="field-input" value={booking.serviceId}
                   onChange={e=>setBooking(b=>({...b,serviceId:e.target.value}))}>
                   <option value="">Choose a service</option>
                   {knowledge.services.map(service=><option key={service.id} value={service.id}>
                     {service.name} ({service.duration || "duration not set"})
                   </option>)}
                 </select>
-                <input className="field-input" type="datetime-local" value={booking.startAt}
+                <input className="field-input" aria-label="Requested appointment date and time" type="datetime-local" value={booking.startAt}
                   onChange={e=>setBooking(b=>({...b,startAt:e.target.value}))} />
                 <button className="btn btn--amber" disabled={bookingBusy||!booking.serviceId}
                   onClick={submitBookingRequest}>{bookingBusy?"Submitting...":"Submit booking request"}</button>
@@ -335,7 +366,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
               {isListening ? <MicOff className="icon-btn-icon" /> : <Mic className="icon-btn-icon" />}
             </button>
             <input
-              className="field-input widget-input"
+              aria-label="Message to assistant" className="field-input widget-input"
               placeholder="Type a message..."
               value={draft}
               disabled={!enabled}
@@ -347,12 +378,12 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
                 }
               }}
             />
-            <button className="widget-send" onClick={() => send()} disabled={!enabled}><Send className="icon-btn-icon" /></button>
+            <button aria-label="Send message" className="widget-send" onClick={() => send()} disabled={!enabled}><Send className="icon-btn-icon" /></button>
           </div>
         </div>
       )}
       {!open && (
-        <button className="widget-bubble" onClick={() => setOpen(true)}>
+        <button aria-label="Open chat" className="widget-bubble" onClick={() => setOpen(true)}>
           <MessageCircle className="icon-btn-icon" />
         </button>
       )}

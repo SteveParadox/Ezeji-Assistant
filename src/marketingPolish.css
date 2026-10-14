@@ -1,0 +1,113 @@
+.marketing { padding-top: 72px; background: var(--ink); color: var(--paper); }
+.marketing .container { max-width: 1240px; padding-inline: 32px; }
+.marketing .nav { background: rgb(18 19 31 / 95%); }
+.marketing .nav-inner { height: 72px; padding-block: 12px; }
+.marketing .brand-name { font-family: var(--font-display); font-size: 23px; }
+.marketing .hero { padding-block: 80px 72px; gap: 64px; }
+.marketing .hero-title { font-size: clamp(40px, 5vw, 68px); letter-spacing: -.025em; line-height: 1.06; }
+.marketing .hero-title em { color: var(--amber); font-weight: 400; }
+.marketing .hero-sub { max-width: 480px; font-size: 16px; line-height: 1.8; margin-block: 0 28px; }
+.marketing .hero-note { color: var(--paper-muted); font-size: 12px; margin-top: 20px; }
+.marketing .eyebrow { letter-spacing: .1em; font-size: 10px; font-weight: 500; line-height: 1.7; }
+.marketing .hero-product-preview { width: 100%; background: var(--ink-soft); border: 1px solid var(--ink-border); border-radius: 20px; padding: 0 24px 20px; box-shadow: var(--shadow-panel); }
+.marketing .preview-window-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 18px; font-size: 10px; color: var(--paper-muted); }
+.marketing .preview-window-dots { color: var(--paper-faint); letter-spacing: 2px; }
+.marketing .hero-chat-card { max-width: none; border-radius: 12px; box-shadow: none; background: var(--ink-card); }
+.marketing .hero-chat-body { padding: 20px; gap: 16px; }
+.marketing .hero-chat-header { padding: 18px 20px; }
+.marketing .hero-preview-footer { display: flex; align-items: center; gap: 8px; color: var(--paper-muted); font-size: 10px; padding: 16px; background: var(--ink-soft); border-top: 1px solid var(--ink-border); }
+.marketing .hero-preview-footer svg { color: var(--amber); flex-shrink: 0; }
+.marketing .preview-caption { color: var(--paper-muted); font-size: 10px; line-height: 1.6; margin: 16px 0 0; }
+.marketing .industry-strip { background: var(--ink); }
+.marketing .industry-strip-label { padding-top: 24px; margin-bottom: 20px; font-size: 11px; }
+.marketing .industry-row { padding-bottom: 28px; gap: 20px 32px; }
+.marketing .product-intro { padding-block: 80px 28px; }
+.marketing .product-intro > div { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
+.marketing .section-title { font-size: clamp(30px, 3vw, 44px); line-height: 1.15; letter-spacing: -.02em; }
+.marketing .features-section { padding-block: 36px 80px; }
+.marketing .features-section .section-heading { margin-bottom: 28px; }
+.marketing .features-grid { gap: 16px; grid-template-columns: repeat(3,minmax(0,1fr)); }
+.marketing .feature-card { padding: 28px; border-radius: 12px; background: var(--ink-soft); }
+.marketing .feature-card:first-child { grid-column: span 2; display: grid; grid-template-columns: 56px 1fr; gap: 0 20px; }
+.marketing .feature-card:first-child .feature-icon-wrap { grid-row: span 2; margin: 0; }
+.marketing .feature-card:first-child .feature-title { font-size: 22px; letter-spacing: -.03em; }
+.marketing .feature-card:first-child .feature-body { max-width: 420px; }
+.marketing .feature-card:last-child { grid-column: 1 / -1; display: grid; grid-template-columns: 56px 1fr; gap: 0 20px; }
+.marketing .feature-card:last-child .feature-icon-wrap { grid-row: span 2; margin: 0; }
+.marketing .feature-icon-wrap { border: 1px solid rgb(255 165 60 / 15%); margin-bottom: 24px; }
+.marketing .feature-title { font-weight: 600; }
+.marketing .how-section { padding: 72px 0; border-block: 1px solid var(--ink-border); }
+.marketing .how-title { margin-bottom: 36px; max-width: 600px; }
+.marketing .steps-grid { grid-template-columns: repeat(5,minmax(0,1fr)); gap: 24px; }
+.marketing .step-number { width: 40px; height: 40px; border: 1px solid var(--ink-border); border-radius: 12px; display: grid; place-items: center; background: var(--ink-card); margin-bottom: 20px; }
+.marketing .step-title { font-size: 15px; font-weight: 600; }
+.marketing .step-body { font-size: 12px; line-height: 1.8; }
+.marketing .pricing-section { padding-block: 80px 60px; }
+.marketing .pricing-section .section-heading { max-width: 650px; margin-bottom: 28px; }
+.marketing .pricing-grid { gap: 16px; }
+.marketing .pricing-toolbar { margin-bottom: 24px; }
+.marketing .plan-card { border-radius: 12px; background: var(--ink-soft); padding: 24px 20px; }
+.marketing .plan-card:not(.plan-card--highlighted) { padding-top: 64px; }
+.marketing .plan-card--highlighted { border-color: var(--amber); background: var(--ink-card); }
+.marketing .plan-name { font-size: 15px; font-weight: 600; }
+.marketing .plan-price-row { display: flex; flex-direction: column; gap: 6px; margin: 18px 0 24px; }
+.marketing .plan-price { font-family: var(--font-body); font-size: clamp(23px, 2vw, 28px); font-weight: 600; letter-spacing: -.035em; white-space: nowrap; }
+.marketing .plan-period { margin: 0; font-size: 11px; }
+.marketing .plan-feature-item { font-size: 12px; line-height: 1.6; }
+.marketing .plan-yearly-note { font-size: 11px; line-height: 1.6; }
+.marketing .workflow-note { display: flex; align-items: center; gap: 24px; padding-block: 24px; border-top: 1px solid var(--ink-border); margin-bottom: 48px; }
+.marketing .workflow-note svg { flex: 0 0 24px; color: var(--amber); }
+.marketing .workflow-note h2 { font-size: 16px; margin: 0 0 8px; }
+.marketing .workflow-note p { color: var(--paper-muted); font-size: 13px; margin: 0; line-height: 1.7; }
+.marketing .share-box { background: var(--ink-soft); border-color: var(--ink-border); box-shadow: none; }
+.marketing .share-copy-button:disabled { opacity: .5; cursor: not-allowed; }
+.marketing .copy-status { color: var(--paper-muted); font-size: 12px; margin: 0; min-height: 18px; }
+.marketing .final-cta-section { padding-block: 64px 80px; }
+.marketing .final-cta-title { font-size: clamp(40px, 5vw, 60px); }
+.marketing .footer-inner { padding-block: 28px; }
+.marketing .nav-hamburger { border-radius: 8px; min-height: 44px; min-width: 44px; }
+.marketing .nav-mobile-menu { padding: 0; border: none; background: transparent; gap: 12px; }
+.marketing .nav-mobile-menu a { background: var(--ink-card); min-height: 48px; display: flex; align-items: center; }
+.marketing .nav-mobile-menu .btn--amber { background: var(--amber); color: var(--ink); }
+.marketing .nav-mobile-menu .btn--outline { background: transparent; border-color: var(--ink-border); }
+.marketing .marketing-drawer .drawer-header { font-size: 20px; padding-bottom: 32px; }
+.marketing section[id] { scroll-margin-top: 100px; }
+@media (max-width: 1023px) {
+  .marketing .hero { gap: 40px; padding-block: 48px; }
+  .marketing .hero-product-preview { max-width: 580px; margin: 0 auto; }
+  .marketing .features-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .marketing .feature-card:first-child, .marketing .feature-card:last-child { grid-column: auto; display: block; }
+  .marketing .feature-card:first-child .feature-title { font-size: 16px; }
+  .marketing .feature-card:first-child .feature-icon-wrap, .marketing .feature-card:last-child .feature-icon-wrap { margin-bottom: 24px; }
+  .marketing .steps-grid { grid-template-columns: repeat(3,minmax(0,1fr)); gap: 32px; }
+  .marketing .product-intro > div { gap: 32px; }
+}
+@media (max-width: 600px) {
+  .marketing .container { padding-inline: 20px; }
+  .marketing .nav-inner { padding-inline: 16px; }
+  .marketing .nav-trial { display: none; }
+  .marketing .hero { padding-block: 40px; gap: 32px; }
+  .marketing .hero-title { font-size: clamp(36px, 10vw, 48px); }
+  .marketing .hero-product-preview { padding-inline: 12px; }
+  .marketing .hero-chat-body { padding: 16px; }
+  .marketing .hero-chat-body .chat-bubble { font-size: 12px; }
+  .marketing .preview-window-bar { gap: 8px; }
+  .marketing .hero-sub { font-size: 14px; }
+  .marketing .hero-actions { gap: 10px; }
+  .marketing .hero-actions .btn { flex: 1 1 100%; }
+  .marketing .product-intro > div, .marketing .features-grid, .marketing .steps-grid { grid-template-columns: 1fr; }
+  .marketing .product-intro { padding-block: 48px 24px; }
+  .marketing .product-intro > div { gap: 8px; }
+  .marketing .features-section { padding-block: 20px 48px; }
+  .marketing .feature-card { padding: 24px; }
+  .marketing .how-section { padding-block: 48px; }
+  .marketing .steps-grid > div { display: grid; grid-template-columns: 40px 1fr; gap: 0 16px; }
+  .marketing .step-number { grid-row: span 2; margin: 0; }
+  .marketing .pricing-section { padding-block: 48px; }
+  .marketing .plan-card:not(.plan-card--highlighted) { padding-top: 24px; }
+  .marketing .plan-price { font-size: 30px; }
+  .marketing .workflow-note { margin-bottom: 24px; align-items: flex-start; }
+  .marketing .share-box { padding: 20px; }
+  .marketing .share-link-section { padding-bottom: 24px; }
+  .marketing .footer-inner { gap: 16px; }
+}

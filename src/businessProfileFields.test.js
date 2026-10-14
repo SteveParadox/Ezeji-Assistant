@@ -26,3 +26,20 @@ test("invalid names and contact email do not create misleading success",()=>{
  assert.throws(()=>buildBusinessProfileUpdate({name:"a"}),/business name/);
  assert.throws(()=>buildBusinessProfileUpdate({name:"Cafe",email:"not an email"}),/contact email/);
 });
+
+
+test("profile edits cannot overwrite verified opening hours from the weekly schedule", () => {
+  const profile = {
+    id: "owner-1",
+    business: "Salon",
+    hours: "Monday: 10:00-18:00 (Africa/Lagos)",
+    hoursJson: [{ day: "Monday", open: "10:00", close: "18:00", closed: false }],
+  };
+  const update = buildBusinessProfileUpdate({
+    name: "Salon Updated", category: "Salon & Beauty",
+    hours: "24/7", description: "Real treatments",
+  }, profile);
+  assert.equal(update.hours, profile.hours);
+  assert.deepEqual(update.hoursJson, profile.hoursJson);
+  assert.equal(update.business, "Salon Updated");
+});

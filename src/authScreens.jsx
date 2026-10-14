@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { getPlanDetails } from "./billingLogic";
 import { Mail, Lock, CheckCircle2, Building2 } from "lucide-react";
@@ -12,6 +12,7 @@ export function LoginScreen({ go }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (!email.trim() || !password) {
       setError("Enter your email and password.");
       return;
@@ -47,49 +48,39 @@ export function LoginScreen({ go }) {
       footer={
         <>
           Don't have an account?{" "}
-          <button className="link-btn" onClick={() => go("signup")}>Sign up</button>
+          <button type="button" className="link-btn" onClick={() => go("signup")}>Sign up</button>
         </>
       }
     >
       <h1 className="auth-title">Welcome back</h1>
       <p className="auth-sub">Log in to manage your business assistant.</p>
-      <div className="auth-form">
-        <TextField label="Email" type="email" icon={Mail} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@business.com" />
-        <TextField label="Password" type="password" icon={Lock} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" />
-        <button className="link-btn link-btn--right" onClick={() => go("forgot")}>Forgot password?</button>
-        {error && <p className="auth-error">{error}</p>}
-        <button className="btn btn--amber btn--full btn--lg" onClick={handleSubmit} disabled={isSubmitting}>
+      <form className="auth-form" onSubmit={event => { event.preventDefault(); void handleSubmit(); }}>
+        <TextField label="Email" type="email" autoComplete="username" icon={Mail} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@business.com" />
+        <TextField label="Password" type="password" autoComplete="current-password" icon={Lock} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="********" />
+        <button type="button" className="link-btn link-btn--right" onClick={() => go("forgot")}>Forgot password?</button>
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <button className="btn btn--amber btn--full btn--lg" type="submit" disabled={isSubmitting}>
           {isSubmitting ? "Logging in..." : "Log in"}
         </button>
-        <button className="link-btn" onClick={() => go("landing")}>Back to landing</button>
-      </div>
+        <button type="button" className="link-btn" onClick={() => go("landing")}>Back to landing</button>
+      </form>
     </AuthShell>
   );
 }
 
 export function SignupScreen({ go }) {
-  const [form, setForm] = useState(() => {
-    const selection = getStoredPlanSelection();
-    return {
-      name: "",
-      business: "",
-      businessType: "Restaurant",
-      customBusinessType: "",
-      email: "",
-      password: "",
-      serviceName: "",
-      price: "",
-      hours: "",
-      description: "",
-      selectedPlan: selection.plan || "14-day trial",
-      selectedMode: selection.mode || "trial",
-      selectedBillingPeriod: selection.billingPeriod || "monthly",
-      selectedCurrency: selection.currency || "USD",
-    };
-  });
+  const [form, setForm] = useState(() => ({
+    name: "",
+    business: "",
+    businessType: "Other",
+    email: "",
+    password: "",
+  }));
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const selection = getStoredPlanSelection();
+  const paidPlan = selectedPaidPlan(selection);
+  const set = (key) => (event) => setForm((previous) => ({ ...previous, [key]: event.target.value }));
 
   const handleSubmit = async () => {
     if (isSubmitting) return;
@@ -97,68 +88,37 @@ export function SignupScreen({ go }) {
     setIsSubmitting(true);
     try {
       const result = await registerBusiness(form);
-      if (!result.session) {
-        go("verify", { email: result.email });
-        return;
-      }
-      // With confirmation disabled Supabase signs in immediately.
-      // The app's auth-state manager provisions the owner account.
-    } catch (err) {
-      setError(err.message || "Registration failed. Please try again.");
+      if (!result.session) go("verify", { email: result.email });
+      // Session-based routing and provisioning remain in NightlineApp.
+    } catch (submitError) {
+      setError(submitError.message || "Registration failed. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <AuthShell
-      footer={
-        <>
-          Already have an account?{" "}
-          <button className="link-btn" onClick={() => go("login")}>Log in</button>
-        </>
-      }
-    >
+    <AuthShell footer={<>Already have an account?{" "}
+      <button type="button" className="link-btn" onClick={() => go("login")}>Log in</button>
+    </>}>
       <h1 className="auth-title">Create your account</h1>
-      <p className="auth-sub">Start your 14-day free trial. No card required.</p>
-      <div className="auth-form">
-        <TextField label="Your name" value={form.name} onChange={set("name")} placeholder="Maya Reyes" />
-        <TextField label="Business name" icon={Building2} value={form.business} onChange={set("business")} placeholder="Bloom & Co. Salon" />
-        <label className="field">
-          <span className="field-label">Business type</span>
-          <select className="field-input field-select" value={form.businessType} onChange={set("businessType")}>
-            {[
-              "Restaurant",
-              "Salon & Beauty",
-              "Hotel",
-              "Clinic",
-              "Laundry",
-              "Gym",
-              "Real Estate",
-              "Other",
-            ].map((option) => (
-              <option key={option} value={option}>{option}</option>
-            ))}
-          </select>
-        </label>
-        {form.businessType === "Other" && (
-          <TextField label="Custom business type" value={form.customBusinessType} onChange={set("customBusinessType")} placeholder="Wedding planner, moving company, tutoring, etc." />
-        )}
-        <TextField label="Email" type="email" icon={Mail} value={form.email} onChange={set("email")} placeholder="you@business.com" />
-        <TextField label="Service name" value={form.serviceName} onChange={set("serviceName")} placeholder="Services your business offers" />
-        <TextField label="Price" value={form.price} onChange={set("price")} placeholder="$180" />
-        <TextField label="Hours" value={form.hours} onChange={set("hours")} placeholder="Mon-Sat 9:00 AM - 6:00 PM" />
-        <label className="field">
-          <span className="field-label">Describe your work</span>
-          <textarea className="field-input field-textarea" rows={3} value={form.description} onChange={set("description")} placeholder="Tell the assistant about your services, style, or specialties like dreadlocks, loc maintenance, twists, and consultations." />
-        </label>
-        <TextField label="Password" type="password" icon={Lock} value={form.password} onChange={set("password")} placeholder="********" />
-        {error && <p className="auth-error">{error}</p>}
-        <button className="btn btn--amber btn--full btn--lg" onClick={handleSubmit} disabled={isSubmitting}>
-          {isSubmitting ? "Creating account..." : "Sign Up"}
+      <p className="auth-sub">
+        {paidPlan
+          ? `Create your account to continue with ${paidPlan.plan} (${paidPlan.billingPeriod}). Payment happens securely after verification.`
+          : "Start your 14-day trial. No card required."}
+        {" "}You'll add services, hours and assistant details after registration.
+      </p>
+      <form className="auth-form" onSubmit={event => { event.preventDefault(); void handleSubmit(); }}>
+        <TextField label="Full name" autoComplete="name" value={form.name} onChange={set("name")} placeholder="Your name" />
+        <TextField label="Business name" icon={Building2} value={form.business} onChange={set("business")} placeholder="Your business" />
+        <TextField label="Email address" autoComplete="email" type="email" icon={Mail} value={form.email} onChange={set("email")} placeholder="you@business.com" />
+        <TextField label="Password (at least 8 characters)" type="password" autoComplete="new-password" icon={Lock} value={form.password} onChange={set("password")} />
+        {error && <p className="auth-error" role="alert">{error}</p>}
+        <button type="submit" className="btn btn--amber btn--full btn--lg" disabled={isSubmitting}>
+          {isSubmitting ? "Creating account..." : "Create account"}
         </button>
-        <button className="link-btn" onClick={() => go("landing")}>Back to landing</button>
-      </div>
+        <button type="button" className="link-btn" onClick={() => go("landing")}>Back to landing</button>
+      </form>
     </AuthShell>
   );
 }
@@ -186,7 +146,7 @@ export function CheckoutScreen({ go, user }) {
   return (
     <AuthShell footer={<button className="link-btn" onClick={() => go("landing")}>Back to landing</button>}>
       <h1 className="auth-title">Secure checkout</h1>
-      <p className="auth-sub">Your business must be verified before Paystack checkout.</p>
+      <p className="auth-sub">Complete a one-time purchase in NGN through Paystack. Access activates after server-verified payment settlement. Payments do not renew automatically.</p>
       <div className="auth-form">
         {selection && <div className="panel" style={{ padding: 16, marginBottom: 16 }}>
           <p className="stat-label">{selection.plan} plan</p>
@@ -199,7 +159,7 @@ export function CheckoutScreen({ go, user }) {
             <button className="link-btn" onClick={() => go("login")}>Already registered? Log in</button>
           </>
         ) : user.isStaff ? (
-          <p className="auth-error">Only a business owner can manage subscription checkout.</p>
+          <p className="auth-error" role="alert">Only a business owner can manage subscription checkout.</p>
         ) : user.paymentStatus === "active" && user.plan === selection?.plan && user.billingPeriod === selection?.billingPeriod ? (
           <>
             <p>You're already subscribed to this plan.</p>
@@ -210,7 +170,7 @@ export function CheckoutScreen({ go, user }) {
             {submitting ? "Connecting to Paystack..." : "Continue to Paystack"}
           </button>
         )}
-        {error && <p className="auth-error">{error}</p>}
+        {error && <p className="auth-error" role="alert">{error}</p>}
       </div>
     </AuthShell>
   );
@@ -223,6 +183,7 @@ export function ForgotScreen({ go }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
     if (!email.trim()) {
       setError("Enter your email address.");
       return;
@@ -244,20 +205,20 @@ export function ForgotScreen({ go }) {
   };
 
   return (
-    <AuthShell footer={<button className="link-btn" onClick={() => go("login")}>Back to log in</button>}>
+    <AuthShell footer={<button type="button" className="link-btn" onClick={() => go("login")}>Back to log in</button>}>
       <h1 className="auth-title">Reset your password</h1>
       <p className="auth-sub">
         {sent ? "Check your inbox for a reset link." : "Enter your email and we'll send you a reset link."}
       </p>
       {!sent ? (
-        <div className="auth-form">
+        <form className="auth-form" onSubmit={event => { event.preventDefault(); void handleSubmit(); }}>
           <TextField label="Email" type="email" icon={Mail} value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@business.com" />
-          {error && <p className="auth-error">{error}</p>}
-          <button className="btn btn--amber btn--full btn--lg" onClick={handleSubmit} disabled={isSubmitting}>
+          {error && <p className="auth-error" role="alert">{error}</p>}
+          <button className="btn btn--amber btn--full btn--lg" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "Sending..." : "Send reset link"}
           </button>
-          <button className="link-btn" onClick={() => go("landing")}>Back to landing</button>
-        </div>
+          <button type="button" className="link-btn" onClick={() => go("landing")}>Back to landing</button>
+        </form>
       ) : (
         <div className="reset-sent">
           <CheckCircle2 className="reset-sent-icon" />
@@ -291,15 +252,15 @@ export function VerificationPendingScreen({ go, email }) {
     }
   };
   return (
-    <AuthShell footer={<button className="link-btn" onClick={() => go("login")}>Back to login</button>}>
+    <AuthShell footer={<button type="button" className="link-btn" onClick={() => go("login")}>Back to login</button>}>
       <h1 className="auth-title">Check your email</h1>
       <p className="auth-sub">Confirm your email address, then return to Ezeji Assistant. We will continue your business setup and selected plan.</p>
-      <div className="auth-form">
+      <form className="auth-form" onSubmit={event => { event.preventDefault(); void resend(); }}>
         <TextField label="Registration email" type="email" icon={Mail} value={address} onChange={(e) => setAddress(e.target.value)} />
-        <button className="btn btn--amber btn--full" onClick={resend} disabled={busy}>{busy ? "Sending..." : "Resend confirmation"}</button>
+        <button className="btn btn--amber btn--full" type="submit" disabled={busy}>{busy ? "Sending..." : "Resend confirmation"}</button>
         {state && <p role="status">{state}</p>}
-        <button className="link-btn" onClick={() => go("login")}>Already verified? Log in</button>
-      </div>
+        <button type="button" className="link-btn" onClick={() => go("login")}>Already verified? Log in</button>
+      </form>
     </AuthShell>
   );
 }
@@ -334,7 +295,7 @@ export function ResetPasswordScreen({ go }) {
     }
   };
   return (
-    <AuthShell footer={<button className="link-btn" onClick={() => go("login")}>Back to login</button>}>
+    <AuthShell footer={<button type="button" className="link-btn" onClick={() => go("login")}>Back to login</button>}>
       <h1 className="auth-title">Choose a new password</h1>
       {done ? (
         <div className="auth-form">
@@ -342,12 +303,12 @@ export function ResetPasswordScreen({ go }) {
           <button className="btn btn--amber btn--full" onClick={() => go("login")}>Log in</button>
         </div>
       ) : (
-        <div className="auth-form">
-          <TextField label="New password (8+ characters)" type="password" icon={Lock} value={password} onChange={(e) => setPassword(e.target.value)} />
-          <TextField label="Confirm new password" type="password" icon={Lock} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+        <form className="auth-form" onSubmit={event => { event.preventDefault(); void save(); }}>
+          <TextField label="New password (8+ characters)" type="password" autoComplete="new-password" icon={Lock} value={password} onChange={(e) => setPassword(e.target.value)} />
+          <TextField label="Confirm new password" type="password" autoComplete="new-password" icon={Lock} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
           {error && <p className="auth-error" role="alert">{error}</p>}
-          <button className="btn btn--amber btn--full btn--lg" disabled={busy} onClick={save}>{busy ? "Saving..." : "Update password"}</button>
-        </div>
+          <button className="btn btn--amber btn--full btn--lg" disabled={busy} type="submit">{busy ? "Saving..." : "Update password"}</button>
+        </form>
       )}
     </AuthShell>
   );
@@ -375,15 +336,15 @@ export function BusinessSetupScreen({ go, session, onReady }) {
     }
   };
   return (
-    <AuthShell footer={<button className="link-btn" onClick={() => supabase.auth.signOut().then(() => go("login"))}>Use another account</button>}>
+    <AuthShell footer={<button type="button" className="link-btn" onClick={() => supabase.auth.signOut().then(() => go("login"))}>Use another account</button>}>
       <h1 className="auth-title">Complete business setup</h1>
       <p className="auth-sub">Your account is verified. Provide the missing business details to continue to your saved plan.</p>
-      <div className="auth-form">
+      <form className="auth-form" onSubmit={event => { event.preventDefault(); void submit(); }}>
         <TextField label="Your name" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
         <TextField label="Business name" icon={Building2} value={form.business} onChange={(e) => setForm((f) => ({ ...f, business: e.target.value }))} />
-        <button className="btn btn--amber btn--full" onClick={submit} disabled={busy}>{busy ? "Saving..." : "Continue"}</button>
+        <button className="btn btn--amber btn--full" type="submit" disabled={busy}>{busy ? "Saving..." : "Continue"}</button>
         {error && <p className="auth-error" role="alert">{error}</p>}
-      </div>
+      </form>
     </AuthShell>
   );
 }
@@ -402,23 +363,33 @@ export function AuthErrorScreen({ go, error, retry }) {
 
 export function PaymentPendingScreen({ onCheck, onDashboard }) {
   const [checking, setChecking] = useState(false);
-  const [message, setMessage] = useState("Your payment is being verified. Your plan only activates after Paystack confirms it.");
+  const [message, setMessage] = useState("Verifying this checkout with Paystack. Your plan activates only after settlement.");
+  const checkRef = useRef(onCheck);
+  const inFlight = useRef(false);
+  checkRef.current = onCheck;
+
   const refresh = async () => {
-    if (checking) return;
+    if (inFlight.current) return;
+    inFlight.current = true;
     setChecking(true);
     try {
-      const active = await onCheck();
-      if (!active) setMessage("Payment has not been confirmed yet. You can retry without paying a second time.");
+      const active = await checkRef.current();
+      if (!active) setMessage("This payment is still pending. Please verify again before starting another checkout.");
     } catch (error) {
       setMessage(error.message || "Unable to check payment status. Please retry.");
     } finally {
+      inFlight.current = false;
       setChecking(false);
     }
   };
+
+  // A Paystack callback should immediately reconcile the exact reference.
+  // Ref gating prevents overlapping manual/automatic requests.
+  useEffect(() => { void refresh(); }, []);
   return (
-    <AuthShell footer={<button className="link-btn" onClick={onDashboard}>Open dashboard</button>}>
+    <AuthShell footer={<button className="link-btn" onClick={onDashboard}>Open billing without dismissing payment verification</button>}>
       <h1 className="auth-title">Checking your payment</h1>
-      <p className="auth-sub">{message}</p>
+      <p className="auth-sub" role="status" aria-live="polite">{message}</p>
       <button className="btn btn--amber btn--full" onClick={refresh} disabled={checking}>
         {checking ? "Checking..." : "Refresh payment status"}
       </button>

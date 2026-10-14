@@ -1,0 +1,22 @@
+/* Authoritative Ezeji palette. Muted ink is decorative; readable text uses secondary. */
+:root {
+  --ink: #12131F; --ink-soft: #191B29; --ink-card: #1D1F30; --ink-border: #2B2D40;
+  --paper: #F5F4F8; --paper-muted: #A6A5BA; --paper-faint: #6E6D85;
+  --amber: #FFA53C; --green: #6FCF97; --red: #FF8A80;
+  --amber-bg: rgb(255 165 60 / 10%); --green-bg: rgb(111 207 151 / 12%); --red-bg: rgb(255 138 128 / 12%);
+  --amber-text-on: var(--ink);
+  --font-body: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Instrument Serif", Georgia, serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --text-xs: .75rem; --text-sm: .875rem; --text-base: 1rem; --text-lg: 1.125rem;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px; --space-8: 32px; --space-10: 40px; --space-12: 48px;
+  --radius-sm: 8px; --radius-md: 12px; --radius-lg: 18px; --radius-xl: 24px;
+  --control-height: 44px; --sidebar-width: 244px; --workspace-width: 1440px; --form-width: 880px;
+  --shadow-panel: 0 12px 32px rgb(18 19 31 / 18%);
+  --shadow-dialog: 0 32px 80px rgb(18 19 31 / 65%);
+  --motion-fast: 140ms; --motion-normal: 220ms;
+  --focus-ring: 2px solid var(--amber);
+  /* Breakpoints: mobile 600px, navigation 900px, wide layout 1200px. */
+  color-scheme: dark;
+}

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useId, useState } from "react";
 import { supabase } from "./supabaseClient";
 import { Eye, EyeOff } from "lucide-react";
 import { resolveSignedInUserWith } from "./signedInUser.js";
@@ -78,6 +78,7 @@ export async function fetchProfile(userId, email, userMetadata = {}) {
     greeting: data.greeting,
     escalationKeywords: data.escalation_keywords,
     hoursJson: data.hours_json,
+    timezone: data.timezone || 'Africa/Lagos',
     address: data.address,
     cityStateZip: data.city_state_zip,
     disappearingDefault: data.disappearing_default,
@@ -126,6 +127,7 @@ export async function upsertProfile(userId, fields) {
     greeting: fields.greeting,
     escalation_keywords: fields.escalationKeywords,
     hours_json: fields.hoursJson,
+    timezone: fields.timezone,
     address: fields.address,
     city_state_zip: fields.cityStateZip,
   };
@@ -143,15 +145,20 @@ export async function upsertProfile(userId, fields) {
   }
 }
 
-export function TextField({ label, type = "text", icon: Icon, value, onChange, placeholder }) {
+export function TextField({ label, type = "text", icon: Icon, value, onChange, placeholder, help, error, ...inputProps }) {
+  const id = useId();
   const [show, setShow] = useState(false);
   const isPassword = type === "password";
   return (
-    <label className="field">
+    <label className="field" htmlFor={id}>
       <span className="field-label">{label}</span>
-      <div className="field-input-wrap">
+      <div className={`field-input-wrap ${Icon ? "field-input-wrap--icon" : ""} ${isPassword ? "field-input-wrap--password" : ""}`}>
         {Icon && <Icon className="field-icon" />}
         <input
+          {...inputProps}
+          id={id}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={help || error ? `${id}-help` : undefined}
           className="field-input"
           type={isPassword && show ? "text" : type}
           value={value}
@@ -159,40 +166,52 @@ export function TextField({ label, type = "text", icon: Icon, value, onChange, p
           placeholder={placeholder}
         />
         {isPassword && (
-          <button type="button" className="field-eye" onClick={() => setShow((s) => !s)}>
+          <button type="button" className="field-eye" aria-label={show ? "Hide password" : "Show password"} aria-pressed={show} onClick={() => setShow((s) => !s)}>
             {show ? <EyeOff className="field-icon" /> : <Eye className="field-icon" />}
           </button>
         )}
       </div>
+      {(help || error) && <span id={`${id}-help`} className={error ? "auth-error" : "field-help"}>{error || help}</span>}
     </label>
   );
 }
 
 export function AuthShell({ children, footer }) {
   return (
-    <div className="auth-screen">
+    <main className="auth-screen">
       <div className="auth-card">
-        <Logo size={20} />
+        <Logo size={24} />
+        <p className="auth-kicker">Your business, thoughtfully connected</p>
         {children}
       </div>
       <p className="auth-footer">{footer}</p>
-    </div>
+    </main>
   );
 }
 
 
 export function getStoredPlanSelection() {
-  if (typeof window === "undefined") return { plan: "14-day trial", mode: "trial", billingPeriod: "monthly", currency: "USD" };
+  const trial = { plan: "14-day trial", mode: "trial", billingPeriod: "monthly", currency: "NGN" };
+  if (typeof window === "undefined") return trial;
   try {
     const saved = window.localStorage.getItem("nightline-plan-selection");
-    if (saved) return { billingPeriod: "monthly", currency: "USD", ...JSON.parse(saved) };
+    if (saved) {
+      const selection = JSON.parse(saved);
+      return selection && typeof selection === "object" && !Array.isArray(selection)
+        ? { ...trial, ...selection, currency: "NGN" }
+        : trial;
+    }
     const legacy = window.localStorage.getItem("nightline-trial-plan");
-    return legacy ? { plan: legacy, mode: legacy === "14-day trial" ? "trial" : "paid", billingPeriod: "monthly", currency: "USD" } : { plan: "14-day trial", mode: "trial", billingPeriod: "monthly", currency: "USD" };
+    return legacy ? {
+      plan: legacy,
+      mode: legacy === "14-day trial" ? "trial" : "paid",
+      billingPeriod: "monthly",
+      currency: "NGN",
+    } : trial;
   } catch {
-    return { plan: "14-day trial", mode: "trial", billingPeriod: "monthly", currency: "USD" };
+    return trial;
   }
 }
-
 
 export const STAFF_LIMITS = {
   '14-day trial': 1,
@@ -221,12 +240,12 @@ export const CONVERSATION_LIMITS = {
 };
 
 
-export function StatCard({ label, value, sub, accent }) {
+export function StatCard({ label, value, sub, accent, loading }) {
   return (
-    <div className="stat-card">
+    <div className="stat-card" aria-busy={loading || undefined}>
       <p className="stat-label">{label}</p>
-      <p className="stat-value" style={accent ? { color: "var(--amber)" } : undefined}>{value}</p>
-      {sub && <p className="stat-sub">{sub}</p>}
+      <p className="stat-value" style={accent ? { color: "var(--amber)" } : undefined}>{loading ? <span className="skeleton" aria-label="Loading metric" /> : value}</p>
+      {sub && !loading && <p className="stat-sub">{sub}</p>}
     </div>
   );
 }

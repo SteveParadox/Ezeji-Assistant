@@ -27,3 +27,7 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Browser test evidence is generated per run
+playwright-report/
+test-results/
