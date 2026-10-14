@@ -11,7 +11,7 @@ export function AISettingsPage({ user, onUpdateUser }) {
   useEffect(()=>{let current=true;workspaceApi(`/assistant-settings/${user.id}`).then(data=>{if(current){setAvailability(data);setPolicies({...data.policies,languages:data.languages||""});}}).catch(()=>{if(current)setAvailabilityError("Assistant availability could not be loaded. Retry by returning to this page.");});return()=>{current=false};},[user.id]);
   const saveAvailability=async(active)=>{
     if(settingsGuard.current)return;settingsGuard.current=true;setSettingsBusy(true);setAvailabilityError("");
-    try{const data=await workspaceApi(`/assistant-settings/${user.id}`,{method:"PATCH",body:JSON.stringify({...policies,...(typeof active==="boolean"?{active}: {})})});setAvailability(v=>({...v,active:data.active}));}
+    try{const data=await workspaceApi(`/assistant-settings/${user.id}`,{method:"PATCH",body:JSON.stringify(typeof active==="boolean"?{active}:{...policies})});setAvailability(v=>({...v,active:data.active}));}
     catch(e){setAvailabilityError(e.message);}finally{settingsGuard.current=false;setSettingsBusy(false);}
   };
   const plan = user?.plan || "14-day trial";
@@ -36,7 +36,7 @@ export function AISettingsPage({ user, onUpdateUser }) {
     setSaveState("saving");
     try {
       if (!onUpdateUser) throw new Error("Assistant settings are unavailable");
-      await onUpdateUser({ ...(user || {}), assistantName, tone, greeting, escalationKeywords });
+      await onUpdateUser({ id:user.id, assistantName, tone, greeting, escalationKeywords });
       setSaveState(editRevision.current === revisionAtStart ? "saved" : "idle");
     } catch (error) {
       console.error("Assistant settings save failed:", error.message);

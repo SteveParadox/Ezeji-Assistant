@@ -29,3 +29,7 @@ test('knowledge is loaded on every call so edited/deleted FAQs cannot remain cac
  let answer='Old answer';const db={from(table){return {select(){return this;},eq(){return this;},order(){return this;},maybeSingle:async()=>({data:{id:'b',business:'Shop'}}),limit:async()=>({data:table==='faqs'&&answer?[{question:'Q',answer}]:[]})};}};
  assert.equal((await loadBusinessKnowledge(db,'b')).knowledge.faqs[0].answer,'Old answer');answer='Updated';assert.equal((await loadBusinessKnowledge(db,'b')).knowledge.faqs[0].answer,'Updated');answer=null;assert.equal((await loadBusinessKnowledge(db,'b')).knowledge.faqs.length,0);
 });
+test('pricing questions during booking collection do not become customer details',()=>{
+ const knowledge=normalizeKnowledge({plan:'Professional',timezone:'Africa/Lagos'},[{id:'cut',name:'Haircut',duration:'30 mins'}]);
+ assert.equal(bookingDialogue({message:'How much is it?',knowledge,profile:{plan:'Professional'},thread:{booking_draft:{serviceId:'cut',step:'name'},status:'automated'}}),null);
+});

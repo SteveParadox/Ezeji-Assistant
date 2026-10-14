@@ -36,3 +36,19 @@ test('invalid configuration, missing credential and excessive context fail safel
  await assert.rejects(()=>createGroqClient({env})({messages:[{role:'user',content:'x'.repeat(50000)}]}),e=>e.code==='context_too_large');
  assert.equal(retryAfterMs('2'),2000);
 });
+test('stalled successful response body honors the response deadline',async t=>{
+ const keepAlive=setTimeout(()=>{},1000);t.after(()=>clearTimeout(keepAlive));let cancelled=false;
+ const c=createGroqClient({env:{...env,GROQ_RESPONSE_TIMEOUT_MS:'100'},fetchImpl:async()=>new Response(new ReadableStream({cancel(){cancelled=true;}}))});
+ await assert.rejects(()=>call(c),e=>e.code==='timeout');assert.equal(cancelled,true);
+});
+test('estimated cost is unknown when provider token metadata is incomplete',async()=>{
+ const p={...payload,usage:{total_tokens:13}};
+ const result=await call(createGroqClient({env:{...env,GROQ_INPUT_USD_PER_MILLION:'1'},fetchImpl:async()=>Response.json(p)}));assert.equal(result.estimatedCostUsd,null);
+});
+
+test('a stalled error-body cancellation cannot block retry classification',async()=>{
+ let attempts=0;
+ const client=createGroqClient({env,sleep:async()=>{},fetchImpl:async()=>++attempts===1?new Response(new ReadableStream({cancel(){return new Promise(()=>{});}}),{status:429}):Response.json(payload)});
+ const result=await Promise.race([call(client),new Promise((_,reject)=>{const timer=setTimeout(()=>reject(new Error('Cancellation blocked retry')),500);timer.unref();})]);
+ assert.equal(result.reply,'Hello');assert.equal(attempts,2);
+});

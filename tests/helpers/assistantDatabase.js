@@ -25,6 +25,7 @@ export async function assistantDatabase({legacyOwners=[]}={}) {
    const q={
     select(s='*'){cols=safe(s);returning=action!=='select';return q;},
     eq(k,v){where.push(`${safe(k)}=${bind(v)}`);return q;},neq(k,v){where.push(`${safe(k)}<>${bind(v)}`);return q;},
+    gt(k,v){where.push(`${safe(k)}>${bind(v)}`);return q;},
     in(k,vs){where.push(`${safe(k)} in (${vs.map(bind).join(',')})`);return q;},
     order(k,opt={}){orders.push(`${safe(k)} ${opt.ascending===false?'desc':'asc'}`);return q;},limit(n){limit=n;return q;},
     insert(f){action='insert';fields=f;return q;},update(f){action='update';fields=f;return q;},delete(){action='delete';return q;},

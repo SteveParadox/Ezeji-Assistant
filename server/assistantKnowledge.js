@@ -1,12 +1,18 @@
 import {assistantDatabaseRequest} from './assistantDatabaseRequest.js';
 export const PROFILE_KNOWLEDGE_FIELDS = 'id,business,business_type,custom_business_type,plan,service_name,price,currency,hours,hours_json,timezone,description,address,city_state_zip,contact_phone,public_contact_email,website,assistant_name,tone,greeting,escalation_keywords,assistant_active,booking_policy,cancellation_policy,refund_policy,language_preferences';
 const text = (value, max = 2000) => typeof value === 'string' ? Array.from(value).filter(char=>char.charCodeAt(0)>=32||['\n','\t','\r'].includes(char)).join('').trim().slice(0, max) : '';
+const weekdays=new Set(['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']);
+const hour=value=>typeof value==='string'&&/^([01]\d|2[0-3]):[0-5]\d$/.test(value)?value:'';
+function normalizedSchedule(value) {
+ const seen=new Set();return (Array.isArray(value)?value:[]).filter(d=>d&&weekdays.has(d.day)&&!seen.has(d.day)&&seen.add(d.day)).slice(0,7)
+   .map(d=>({day:d.day,closed:d.closed===true,open:hour(d.open),close:hour(d.close)}));
+}
 export function normalizeKnowledge(profile = {}, services = [], faqs = []) {
   const premium = ['Professional', 'Business'].includes(profile.plan);
   return {
     business: text(profile.business, 160), category: text(profile.custom_business_type || profile.business_type, 160),
     description: text(profile.description), currency: text(profile.currency, 8) || 'NGN',
-    timezone: text(profile.timezone, 80), hours: text(profile.hours, 1000), weeklyHours: Array.isArray(profile.hours_json) ? profile.hours_json.slice(0, 7) : [],
+    timezone: text(profile.timezone, 80), hours: text(profile.hours, 1000), weeklyHours: normalizedSchedule(profile.hours_json),
     location: [text(profile.address, 300), text(profile.city_state_zip, 160)].filter(Boolean).join(', '),
     contact: { phone: text(profile.contact_phone, 40), email: text(profile.public_contact_email, 160), website: text(profile.website, 300) },
     policies: { booking: text(profile.booking_policy, 1500), cancellation: text(profile.cancellation_policy, 1500), refund: text(profile.refund_policy, 1500) },

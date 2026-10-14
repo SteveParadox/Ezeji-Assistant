@@ -1,6 +1,6 @@
 import { hash } from './assistantService.js';
 import { decryptToken } from './whatsappConnections.js';
-import { claimQueuedOutbound } from './whatsappOutboxClaim.js';
+import { assistantDatabaseRequest } from './assistantDatabaseRequest.js';
 export function messagingWindowOpen(event,now=Date.now()) {
   const occurred=Date.parse(event.message_occurred_at||'');
   return Number.isFinite(occurred)&&occurred<=now+300000&&now-occurred<24*60*60*1000;
@@ -8,12 +8,12 @@ export function messagingWindowOpen(event,now=Date.now()) {
 export function createWhatsAppProcessor({db,assistant,fetchImpl=fetch,clock=Date.now,graphVersion=process.env.WHATSAPP_GRAPH_VERSION||'v23.0',tokenDecoder=decryptToken}) {
  if(!/^v\d{1,2}\.\d$/.test(graphVersion))throw new Error('Invalid WhatsApp Graph version');
  async function save(event,fields) {
-   const result=await db.from('whatsapp_events').update({...fields,updated_at:new Date(clock()).toISOString()})
-    .eq('id',event.id).eq('status','processing').eq('attempts',event.attempts).select('id').maybeSingle();
+   const result=await assistantDatabaseRequest(db.from('whatsapp_events').update({...fields,updated_at:new Date(clock()).toISOString()})
+    .eq('id',event.id).eq('status','processing').eq('attempts',event.attempts).select('id').maybeSingle());
    if(result.error||result.data?.id!==event.id)throw new Error('Worker lease lost');
  }
  async function setOutbox(id,fields) {
-   const row=await db.from('whatsapp_outbound_messages').update({...fields,updated_at:new Date(clock()).toISOString()}).eq('id',id).eq('status','sending').select('id').maybeSingle();
+   const row=await assistantDatabaseRequest(db.from('whatsapp_outbound_messages').update({...fields,updated_at:new Date(clock()).toISOString()}).eq('id',id).eq('status','sending').select('id').maybeSingle());
    if(row.error||row.data?.id!==id)throw new Error('Outbound persistence unavailable');
  }
  return async event=>{
@@ -52,11 +52,16 @@ export function createWhatsAppProcessor({db,assistant,fetchImpl=fetch,clock=Date
      const result=await db.from('whatsapp_outbound_messages').select('id,status,reply_text').eq('inbound_event_id',event.id).eq('business_id',event.business_id).maybeSingle();
      if(result.error||!result.data)throw new Error('Committed reply outbox unavailable');outbound=result.data;
    }
-   // Decode before claiming: invalid credentials cannot leave a falsely ambiguous send.
-   const token=tokenDecoder(connection.data.access_token);
-   if(!await claimQueuedOutbound(db,outbound.id,()=>new Date(clock()))) {
+   // The atomic claim supplies the current encrypted credential, never a pre-generation cache.
+   const claim=await assistantDatabaseRequest(db.rpc('claim_whatsapp_outbound',{p_outbound_id:outbound.id,p_event_id:event.id,p_attempt:event.attempts}));
+   if(claim.error)throw new Error('Outbound claim unavailable');
+   if(claim.data?.state==='lease_lost')throw new Error('Worker lease lost');
+   if(claim.data?.state==='blocked'){await save(event,{status:'completed',lease_until:null,last_error:'Reply suppressed by current delivery policy'});return;}
+   if(claim.data?.state!=='claimed') {
      await save(event,{status:'review_required',lease_until:null,last_error:'Outbound already claimed'});return;
    }
+   let token;
+   try{token=tokenDecoder(claim.data.accessToken);}catch{await setOutbox(outbound.id,{status:'failed',failure_reason:'Connection requires secure reconnection'});await save(event,{status:'dead',lease_until:null,last_error:'Connection requires secure reconnection'});return;}
    let accepted;
    try {
      const response=await fetchImpl(`https://graph.facebook.com/${graphVersion}/${event.phone_number_id}/messages`,{
@@ -64,7 +69,7 @@ export function createWhatsAppProcessor({db,assistant,fetchImpl=fetch,clock=Date
        body:JSON.stringify({messaging_product:'whatsapp',to:event.sender_phone,type:'text',text:{body:outbound.reply_text}}),
      });
      const payload=await response.json();
-     if(!response.ok||typeof payload.messages?.[0]?.id!=='string')throw new Error('Provider did not confirm acceptance');
+     if(!response.ok||typeof payload.messages?.[0]?.id!=='string'||!payload.messages[0].id.trim()||payload.messages[0].id.length>512)throw new Error('Provider did not confirm acceptance');
      accepted=payload.messages[0].id;
      await setOutbox(outbound.id,{status:'accepted',provider_message_id:accepted});
    }catch{

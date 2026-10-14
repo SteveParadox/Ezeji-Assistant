@@ -6,7 +6,10 @@ import { API_BASE_URL } from "./shared";
 import { useConfirmation } from "./ui";
 import { supabase } from "./supabaseClient";
 
-export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
+export function ChatWidgetDemo(props) {
+  return <ChatWidgetSession key={`${props.previewOnly===true?"preview":"web"}:${props.user?.id||"guest"}`} {...props}/>;
+}
+function ChatWidgetSession({ user, enabled = true, previewOnly = false }) {
   const confirm=useConfirmation();
   const storageScope=`${previewOnly?"preview":"customer"}-${user?.id||"guest"}`;
   const [open,setOpen]=useState(true),[draftState,setDraftState]=useState({scope:storageScope,value:""});
@@ -15,13 +18,15 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   const [messages,setMessages]=useState([]),[isTyping,setIsTyping]=useState(false),[isRestoring,setIsRestoring]=useState(false);
   const [connectionIssue,setConnectionIssue]=useState(false),[failure,setFailure]=useState(null);
   const [bookingNotice,setBookingNotice]=useState(""),[showBookingForm,setShowBookingForm]=useState(false);
-  const [bookingBusy,setBookingBusy]=useState(false),[bookingReview,setBookingReview]=useState(false);
+  const [bookingBusy,setBookingBusy]=useState(false),[bookingReview,setBookingReview]=useState(false),[bookingUncertain,setBookingUncertain]=useState(false);
   const [booking,setBooking]=useState({name:"",contact:"",serviceId:"",startAt:"",requestId:crypto.randomUUID()});
   const [knowledge,setKnowledge]=useState({faqs:[],services:[]});
   const [currentTime,setCurrentTime]=useState(new Date()),[disappearing,setDisappearing]=useState(true);
   const [isListening,setIsListening]=useState(false),[voiceSupported,setVoiceSupported]=useState(false);
   const recognitionRef=useRef(null),requestGeneration=useRef(0),sendingRef=useRef(false),controller=useRef(null);
   const sessionRef=useRef(null),scrollRef=useRef(null),bookingRef=useRef(false);
+  const bookingPendingKey=`ezeji-booking-pending-${storageScope}`;
+  const getStorage=(kind,key)=>{try{return window[kind].getItem(key);}catch{return null;}};
   const sessionKey=`ezeji-session-${storageScope}`,draftKey=`ezeji-draft-${storageScope}`,pendingKey=`ezeji-pending-${storageScope}`;
   const token=()=>Array.from(crypto.getRandomValues(new Uint8Array(32)),b=>b.toString(16).padStart(2,"0")).join("");
   const greeting=()=>({id:crypto.randomUUID(),from:"ai",text:previewOnly?`Private preview for ${user?.business||"your business"}.`:`Welcome to ${user?.business||"this business"}. How can I help?`});
@@ -33,17 +38,21 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   useEffect(()=>{
     const generation=++requestGeneration.current;
     controller.current?.abort();sendingRef.current=false;bookingRef.current=false;recognitionRef.current?.abort();
-    setIsListening(false);setIsTyping(false);setIsRestoring(false);setFailure(null);setConnectionIssue(false);setBookingBusy(false);setBooking({name:"",contact:"",serviceId:"",startAt:"",requestId:crypto.randomUUID()});setBookingNotice("");setShowBookingForm(false);setBookingReview(false);setKnowledge({faqs:[],services:[]});
+    setIsListening(false);setIsTyping(false);setIsRestoring(false);setFailure(null);setConnectionIssue(false);setBookingBusy(false);setBookingUncertain(false);setBooking({name:"",contact:"",serviceId:"",startAt:"",requestId:crypto.randomUUID()});setBookingNotice("");setShowBookingForm(false);setBookingReview(false);setKnowledge({faqs:[],services:[]});
     let stored=null,pending=null;
     try {
-      stored=previewOnly?null:localStorage.getItem(sessionKey)||sessionStorage.getItem(sessionKey);
-      pending=JSON.parse(sessionStorage.getItem(pendingKey)||"null");
-      setDraft(sessionStorage.getItem(draftKey)||"");
-      setDisappearing(previewOnly||!localStorage.getItem(sessionKey));
+      stored=previewOnly?null:getStorage("localStorage",sessionKey)||getStorage("sessionStorage",sessionKey);
+      pending=JSON.parse(getStorage("sessionStorage",pendingKey)||"null");
+      setDraft(getStorage("sessionStorage",draftKey)||"");
+      setDisappearing(previewOnly||!getStorage("localStorage",sessionKey));
     }catch{setDraft("");}
     sessionRef.current=/^[a-f0-9]{64}$/.test(stored||"")?stored:token();
     if(!previewOnly)try{sessionStorage.setItem(sessionKey,sessionRef.current);}catch{}
     setMessages([greeting()]);
+    if(!previewOnly)try{const saved=JSON.parse(getStorage("sessionStorage",bookingPendingKey)||"null");if(saved?.businessId===user?.id&&saved.sessionToken===sessionRef.current&&typeof saved.requestId==="string"){
+      const date=new Date(saved.startAt);const local=new Date(date.getTime()-date.getTimezoneOffset()*60000).toISOString().slice(0,16);
+      setBooking({name:saved.customerName,contact:saved.customerContact,serviceId:saved.serviceId,startAt:local,requestId:saved.requestId});setShowBookingForm(true);setBookingReview(true);setBookingUncertain(true);setBookingNotice("An earlier booking submission has not been acknowledged. Retry the same reviewed request to retrieve its result.");
+    }}catch{}
     if(pending?.sessionToken===sessionRef.current&&pending?.businessId===user?.id)setFailure(pending);
     const restore=new AbortController();
     if(user?.id&&stored){setIsRestoring(true);authHeaders().then(headers=>fetch(`${API_BASE_URL}/${previewOnly?"assistant-preview/session":"assistant-session"}/${encodeURIComponent(user.id)}`,{headers:{...headers,"X-Conversation-Token":stored},signal:restore.signal}))
@@ -64,21 +73,22 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
       .then(data=>setKnowledge({faqs:data.faqs||[],services:data.services||[]})).catch(()=>{});
     return()=>abort.abort();
   },[user?.id,previewOnly]);
-  const clearChat=()=>{
+  const clearChat=(force=false)=>{
+    if(force!==true&&(sendingRef.current||bookingRef.current||isRestoring))return;
     requestGeneration.current++;controller.current?.abort();sendingRef.current=false;
     sessionRef.current=token();
     try{sessionStorage.setItem(sessionKey,sessionRef.current);sessionStorage.removeItem(pendingKey);localStorage.removeItem(sessionKey);}catch{}
-    setMessages([greeting()]);setIsRestoring(false);setIsTyping(false);setFailure(null);setConnectionIssue(false);setBookingNotice("New conversation started. Earlier server records remain until deletion or expiry.");setDisappearing(true);
+    setBookingUncertain(false);setShowBookingForm(false);setBookingReview(false);setBooking({name:"",contact:"",serviceId:"",startAt:"",requestId:crypto.randomUUID()});setMessages([greeting()]);setIsRestoring(false);setIsTyping(false);setFailure(null);setConnectionIssue(false);setBookingNotice("New conversation started. Earlier server records remain until deletion or expiry.");setDisappearing(true);
   };
   const deleteServerChat=async()=>{
-    if(sendingRef.current||!user?.id)return;
+    if(sendingRef.current||bookingRef.current||isRestoring||!user?.id)return;
     const before=requestGeneration.current;
-    if(!await confirm({title:"Delete this server conversation?",description:"Chat messages will be deleted. Booking requests and usage records remain separate. This cannot be undone.",action:"Delete conversation"})||before!==requestGeneration.current||sendingRef.current)return;
+    if(!await confirm({title:"Delete this server conversation?",description:"Chat messages will be deleted. Booking requests and usage records remain separate. This cannot be undone.",action:"Delete conversation"})||before!==requestGeneration.current||sendingRef.current||bookingRef.current)return;
     sendingRef.current=true;const generation=requestGeneration.current;
     try{
       const headers=await authHeaders();const response=await fetch(`${API_BASE_URL}/${previewOnly?"assistant-preview/session":"assistant-session"}/${encodeURIComponent(user.id)}`,{method:"DELETE",headers:{...headers,"X-Conversation-Token":sessionRef.current}});
       const data=await response.json();if(!response.ok||data.deleted!==true)throw new Error(data.error||"Deletion could not be verified.");
-      if(generation!==requestGeneration.current)return;clearChat();setBookingNotice(data.notice);
+      if(generation!==requestGeneration.current)return;clearChat(true);setBookingNotice(data.notice);
     }catch(error){if(generation===requestGeneration.current)setBookingNotice(error.message);}finally{if(generation===requestGeneration.current)sendingRef.current=false;}
   };
   const toggleDeviceHistory=()=>setDisappearing(value=>{
@@ -86,7 +96,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
     return !value;
   });
   const send=async(text,retryPayload)=>{
-    if(!enabled||sendingRef.current||isRestoring||!user?.id)return;
+    if(!enabled||sendingRef.current||bookingRef.current||isRestoring||!user?.id)return;
     const nextText=String(retryPayload?.message||text||draft||"").trim();if(!nextText||nextText.length>2000)return;
     sendingRef.current=true;const generation=requestGeneration.current;
     const payload=retryPayload||{...buildChatSendPayload(nextText,user,[],{},previewOnly),requestId:crypto.randomUUID(),sessionToken:sessionRef.current};
@@ -108,7 +118,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
   };
 
   const submitBookingRequest = async () => {
-    if (bookingRef.current || !user?.id || previewOnly) return;
+    if (bookingRef.current || sendingRef.current || isRestoring || !bookingReview || !user?.id || previewOnly) return;
     bookingRef.current = true;
     const generation = requestGeneration.current;
     setBookingBusy(true);
@@ -117,26 +127,28 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
       if (!booking.startAt) throw new Error("Choose a date and time.");
       const timestamp = new Date(booking.startAt);
       if (!Number.isFinite(timestamp.getTime())) throw new Error("Invalid appointment time.");
+      const payload={businessId:user.id,sessionToken:sessionRef.current,confirmed:true,serviceId:booking.serviceId,customerName:booking.name,customerContact:booking.contact,startAt:timestamp.toISOString(),requestId:booking.requestId};
+      try{sessionStorage.setItem(bookingPendingKey,JSON.stringify(payload));}catch{}
       const response = await fetch(`${API_BASE_URL}/assistant-booking-request`, {
         method:"POST",
         headers:{"Content-Type":"application/json"},
-        body:JSON.stringify({
-          businessId:user.id,sessionToken:sessionRef.current,confirmed:true,serviceId:booking.serviceId,
-          customerName:booking.name,customerContact:booking.contact,
-          startAt:timestamp.toISOString(),requestId:booking.requestId,
-        }),
+        body:JSON.stringify(payload),
       });
       const result = await response.json().catch(()=>({}));
-      if (!response.ok || result.status!=="pending") {
+      if(generation!==requestGeneration.current)return;
+      if (!response.ok || !['pending','confirmed','completed','rejected','canceled','no_show'].includes(result.status) || typeof result.bookingId!=="string" || !result.bookingId) {
+        if([400,403,422].includes(response.status)){try{sessionStorage.removeItem(bookingPendingKey);}catch{}setBookingUncertain(false);setBooking(b=>({...b,requestId:crypto.randomUUID()}));}
+        else setBookingUncertain(true);
         throw new Error(result.error || "Could not save booking request.");
       }
       if (generation !== requestGeneration.current) return;
-      setBookingReview(false);
-      setBookingNotice("Your request has been saved for staff review. It is NOT a confirmed appointment.");
+      try{sessionStorage.removeItem(bookingPendingKey);}catch{}
+      setBookingReview(false);setBookingUncertain(false);
+      setBookingNotice(result.status==='pending'?"Your request has been saved for staff review. It is NOT a confirmed appointment.":`Your earlier booking request has saved status: ${result.status}.`);
       setShowBookingForm(false);
       setBooking({name:"",contact:"",serviceId:"",startAt:"",requestId:crypto.randomUUID()});
     } catch(error) {
-      if (generation === requestGeneration.current) setBookingNotice(error.message || "Booking request failed.");
+      if (generation === requestGeneration.current) {if(error instanceof TypeError)setBookingUncertain(true);setBookingNotice(error.message || "Booking request failed.");}
     } finally {
       if (generation === requestGeneration.current) {bookingRef.current = false; setBookingBusy(false);}
     }
@@ -203,7 +215,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
               >
                 <Clock className="icon-btn-icon" />
               </button>}
-              <button className="icon-btn" onClick={clearChat} aria-label="Start new conversation" title="Start new conversation">
+              <button className="icon-btn" onClick={()=>clearChat()} disabled={isTyping||bookingBusy||isRestoring} aria-label="Start new conversation" title="Start new conversation">
                 <Trash2 className="icon-btn-icon" />
               </button>
               <button className="icon-btn" aria-label="Close chat" onClick={() => setOpen(false)}><X className="icon-btn-icon" /></button>
@@ -241,21 +253,22 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
               <div className="panel" style={{padding:12,marginTop:10}}>
                 <p className="panel-title">Request an appointment</p>
                 <p className="panel-help">Times are entered in your device timezone. Staff must confirm the request.</p>
-                <input className="field-input" aria-label="Customer name" placeholder="Your name" disabled={bookingBusy} maxLength={120} value={booking.name}
+                <input className="field-input" aria-label="Customer name" placeholder="Your name" disabled={bookingBusy||bookingUncertain} maxLength={120} value={booking.name}
                   onChange={e=>{setBookingReview(false);setBooking(b=>({...b,name:e.target.value}));}} />
-                <input className="field-input" aria-label="Customer email or phone" placeholder="Email or phone" disabled={bookingBusy} maxLength={160} value={booking.contact}
+                <input className="field-input" aria-label="Customer email or phone" placeholder="Email or phone" disabled={bookingBusy||bookingUncertain} maxLength={160} value={booking.contact}
                   onChange={e=>{setBookingReview(false);setBooking(b=>({...b,contact:e.target.value}));}} />
-                <select disabled={bookingBusy} aria-label="Booking service" className="field-input" value={booking.serviceId}
+                <select disabled={bookingBusy||bookingUncertain} aria-label="Booking service" className="field-input" value={booking.serviceId}
                   onChange={e=>{setBookingReview(false);setBooking(b=>({...b,serviceId:e.target.value}));}}>
                   <option value="">Choose a service</option>
                   {knowledge.services.map(service=><option key={service.id} value={service.id}>
                     {service.name} ({service.duration || "duration not set"})
                   </option>)}
                 </select>
-                <input className="field-input" aria-label="Requested appointment date and time" type="datetime-local" disabled={bookingBusy} value={booking.startAt}
+                <input className="field-input" aria-label="Requested appointment date and time" type="datetime-local" disabled={bookingBusy||bookingUncertain} value={booking.startAt}
                   onChange={e=>{setBookingReview(false);setBooking(b=>({...b,startAt:e.target.value}));}} />
+                {bookingUncertain && <p className="panel-help" role="status">The previous submission may have succeeded. Retry the unchanged request to verify its result before editing.</p>}
                 {bookingReview && <p role="status" className="panel-help">Review: {booking.name}, {booking.contact}, {knowledge.services.find(s=>s.id===booking.serviceId)?.name}, {booking.startAt} (device timezone). Availability is not checked. Submission creates a pending request.</p>}
-                <button className="btn btn--amber" disabled={bookingBusy||!booking.serviceId||!booking.name||!booking.contact||!booking.startAt}
+                <button className="btn btn--amber" disabled={bookingBusy||isTyping||isRestoring||!booking.serviceId||!booking.name||!booking.contact||!booking.startAt}
                   onClick={()=>bookingReview?submitBookingRequest():setBookingReview(true)}>{bookingBusy?"Submitting...":bookingReview?"Confirm and submit pending request":"Review booking request"}</button>
               </div>
             )}
@@ -267,7 +280,7 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
               </button>
             )}
             {quickReplies.map((qr) => (
-              <button key={qr.label} className="quick-reply" onClick={() => send(qr.reply)} disabled={!enabled||isTyping||isRestoring}>{qr.label}</button>
+              <button key={qr.label} className="quick-reply" onClick={() => send(qr.reply)} disabled={!enabled||isTyping||bookingBusy||isRestoring}>{qr.label}</button>
             ))}
           </div>
           {!enabled && <p className="panel-help widget-paused-note">The assistant is paused. Turn it live to resume customer replies.</p>}
@@ -288,9 +301,9 @@ export function ChatWidgetDemo({ user, enabled = true, previewOnly = false }) {
                 }
               }}
             />
-            <button aria-label="Send message" className="widget-send" onClick={() => send()} disabled={!enabled||isTyping||isRestoring||!draft.trim()}><Send className="icon-btn-icon" /></button>
+            <button aria-label="Send message" className="widget-send" onClick={() => send()} disabled={!enabled||isTyping||bookingBusy||isRestoring||!draft.trim()}><Send className="icon-btn-icon" /></button>
           </div>
-          {!previewOnly && <button className="quick-reply" disabled={isTyping} onClick={deleteServerChat}>Delete this server conversation</button>}
+          {!previewOnly && <button className="quick-reply" disabled={isTyping||bookingBusy||isRestoring} onClick={deleteServerChat}>Delete this server conversation</button>}
         </div>
       )}
       {!open && (

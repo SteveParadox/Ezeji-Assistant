@@ -342,7 +342,7 @@ export default function NightlineApp() {
   const handleUpdateUser = async (nextUser) => {
     if (!nextUser?.id) return;
     await upsertProfile(nextUser.id, nextUser);
-    setUser(nextUser);
+    setUser(current=>current?.id===nextUser.id?{...current,...nextUser}:current);
   };
 
   return (

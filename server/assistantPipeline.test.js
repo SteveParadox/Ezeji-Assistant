@@ -111,7 +111,7 @@ test('complete migration chain and durable multi-channel assistant invariants',a
   await pg.query("insert into services(business_id,name,price,duration) values($1,'Haircut','NGN 12000','30 mins')",[id]);
   let sent=0;const processor=createWhatsAppProcessor({db,assistant:service,tokenDecoder:()=> 'test',fetchImpl:async()=>{sent++;return Response.json({messages:[{id:'wamid-'+uuid()}]});}});
   const eventId=uuid();await pg.query("insert into whatsapp_events(id,business_id,provider_event_id,phone_number_id,sender_phone,customer_text,status,attempts,message_occurred_at) values($1,$2,$3,$4,$5,'Haircut price?','processing',1,now())",[eventId,id,'wamid-in-'+eventId,phone,sender]);
-  let event=(await pg.query('select * from whatsapp_events where id=$1',[eventId])).rows[0];await processor(event);assert.equal(sent,1);
+  await pg.query("update whatsapp_events set lease_until=now()+interval '90 seconds' where id=$1",[eventId]);let event=(await pg.query('select * from whatsapp_events where id=$1',[eventId])).rows[0];await processor(event);assert.equal(sent,1);
   let outbound=(await pg.query('select * from whatsapp_outbound_messages where inbound_event_id=$1',[eventId])).rows[0];assert.equal(outbound.status,'accepted');
   await db.rpc('apply_whatsapp_delivery_status',{p_business_id:id,p_message_id:outbound.provider_message_id,p_status:'read'});
   await db.rpc('apply_whatsapp_delivery_status',{p_business_id:id,p_message_id:outbound.provider_message_id,p_status:'sent'});
@@ -119,7 +119,7 @@ test('complete migration chain and durable multi-channel assistant invariants',a
   await pg.query("update whatsapp_events set status='processing',attempts=2 where id=$1",[eventId]);event=(await pg.query('select * from whatsapp_events where id=$1',[eventId])).rows[0];await processor(event);assert.equal(sent,1);
   const second=uuid();await pg.query("insert into whatsapp_events(id,business_id,provider_event_id,phone_number_id,sender_phone,customer_text,status,attempts,message_occurred_at) values($1,$2,$3,$4,$5,'What about colouring?','processing',1,now())",[second,id,'wamid-in-'+second,phone,sender]);
   const failSend=createWhatsAppProcessor({db,assistant:service,tokenDecoder:()=> 'test',fetchImpl:async()=>new Response('',{status:500})});
-  await failSend((await pg.query('select * from whatsapp_events where id=$1',[second])).rows[0]);
+  await pg.query("update whatsapp_events set lease_until=now()+interval '90 seconds' where id=$1",[second]);await failSend((await pg.query('select * from whatsapp_events where id=$1',[second])).rows[0]);
   assert.equal((await pg.query('select status from whatsapp_outbound_messages where inbound_event_id=$1',[second])).rows[0].status,'review_required');
   assert.equal(seen.at(-1).some(m=>m.content==='Haircut price?'),true);
   assert.equal(messagingWindowOpen({message_occurred_at:new Date(Date.now()-25*3600000).toISOString()}),false);
@@ -136,7 +136,7 @@ test('complete migration chain and durable multi-channel assistant invariants',a
  });
  await t.test('abandoned generation is released into review without rerun; generated checkpoints reconcile',async()=>{
   const id=await seed();const resolved=await service.resolve({businessId:id,channel:'web',sessionToken:token()});
-  const claim=await db.rpc('claim_assistant_request',{p_business_id:id,p_thread_id:resolved.thread.id,p_request_key:uuid(),p_message:'Hi',p_message_hash:'a'.repeat(64),p_needs_model:true});
+  const claim=await db.rpc('claim_assistant_request',{p_business_id:id,p_thread_id:resolved.thread.id,p_request_key:uuid(),p_message:'Hi',p_message_hash:'a'.repeat(64),p_needs_model:true,p_expected_revision:resolved.thread.revision});
   await pg.query("update assistant_requests set lease_until=now()-interval '1 minute' where id=$1",[claim.data.request.id]);
   const recovered=await reconcileAssistantRequests(db,{logger});assert.equal(recovered.reviewRequired,1);
   const row=(await pg.query('select status from assistant_requests where id=$1',[claim.data.request.id])).rows[0];assert.equal(row.status,'review_required');

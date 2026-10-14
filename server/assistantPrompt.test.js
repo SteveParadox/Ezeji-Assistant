@@ -26,3 +26,7 @@ test('unsupported prices, hours and business-action claims are suppressed',()=>{
  }
  assert.equal(validateAssistantOutput({reply:JSON.stringify({reply:'Haircut is NGN 12000.',intent:'PRICING'})},k).grounded,true);
 });
+test('grounding checks exact amounts and clock tokens rather than substrings',()=>{
+ const k=normalizeKnowledge({hours:'19:00'},[{name:'Haircut',price:'NGN 1000'}]);
+ for(const reply of ['It costs NGN 100.','We open at 9:00.'])assert.equal(validateAssistantOutput({reply:JSON.stringify({reply,intent:'GENERAL_ENQUIRY'})},k).grounded,false);
+});

@@ -55,3 +55,40 @@ test('restored committed reply clears an interrupted request and is not duplicat
  await page.reload();await expect(page.getByText('Haircut costs NGN 15000.',{exact:true})).toBeVisible();await expect(page.getByRole('button',{name:'Retry last message'})).toHaveCount(0);
  await expect(page.getByText('Price please',{exact:true})).toHaveCount(1);expect(writes.filter(w=>w.path==='/assistant-reply')).toHaveLength(1);
 });
+test('booking recovery preserves original input and request ID after a lost response and refresh',async({page})=>{
+ await setupApp(page,{signedIn:false});const submitted=[];
+ await page.route('http://127.0.0.1:5174/assistant-booking-request',route=>{submitted.push(route.request().postDataJSON());return route.fulfill(submitted.length===1?{status:503,json:{error:'Booking result awaiting recovery'}}:{json:{bookingId:'saved-pending-booking',status:'pending'}});});
+ await page.goto(url);await page.getByRole('button',{name:'Request appointment',exact:true}).click();
+ await page.getByRole('textbox',{name:'Customer name',exact:true}).fill('Ada');await page.getByRole('textbox',{name:'Customer email or phone'}).fill('ada@example.test');await page.getByRole('combobox',{name:'Booking service'}).selectOption('service-1');await page.getByLabel('Requested appointment date and time').fill('2026-10-20T10:00');
+ await page.getByRole('button',{name:'Review booking request'}).click();await page.getByRole('button',{name:'Confirm and submit pending request'}).click();await expect(page.getByText(/previous submission may have succeeded/)).toBeVisible();
+ await expect(page.getByRole('textbox',{name:'Customer name',exact:true})).toBeDisabled();await page.reload();
+ await expect(page.getByRole('textbox',{name:'Customer name',exact:true})).toHaveValue('Ada');await page.getByRole('button',{name:'Confirm and submit pending request'}).click();await expect(page.getByText(/saved for staff review/)).toBeVisible();
+ expect(submitted[1]).toEqual(submitted[0]);
+});
+test('an in-flight booking cannot be detached by starting or deleting the conversation',async({page})=>{
+ await setupApp(page,{signedIn:false});let release;
+ await page.route('http://127.0.0.1:5174/assistant-booking-request',async route=>{await new Promise(r=>release=r);await route.fulfill({json:{bookingId:'verified-booking',status:'pending'}});});
+ await page.goto(url);await page.getByRole('button',{name:'Request appointment',exact:true}).click();
+ await page.getByRole('textbox',{name:'Customer name',exact:true}).fill('Ada');await page.getByRole('textbox',{name:'Customer email or phone'}).fill('ada@example.test');await page.getByRole('combobox',{name:'Booking service'}).selectOption('service-1');await page.getByLabel('Requested appointment date and time').fill('2026-10-20T10:00');
+ await page.getByRole('button',{name:'Review booking request'}).click();await page.getByRole('button',{name:'Confirm and submit pending request'}).click();
+ await expect(page.getByRole('button',{name:'Start new conversation'})).toBeDisabled();await expect(page.getByRole('button',{name:'Delete this server conversation'})).toBeDisabled();
+ release();await expect(page.getByText(/saved for staff review/)).toBeVisible();await expect(page.getByRole('button',{name:'Start new conversation'})).toBeEnabled();
+});
+test('pausing the assistant does not silently save unfinished policy edits',async({page})=>{
+ const {writes}=await setupApp(page);await page.goto('/?view=dashboard&tab=ai');await page.getByText('Business policies and language preferences',{exact:true}).click();await page.getByRole('textbox',{name:'Refund policy',exact:true}).fill('This draft should remain unsaved.');
+ await page.getByRole('button',{name:'Pause customer assistant'}).click();await expect(page.getByRole('button',{name:'Activate customer assistant'})).toBeVisible();
+ expect(writes.find(w=>w.path.startsWith('/assistant-settings/')).body).toEqual({active:false});await expect(page.getByRole('textbox',{name:'Refund policy',exact:true})).toHaveValue('This draft should remain unsaved.');
+});
+
+test('handoff controls wait for verified thread data and reject mismatched save receipts',async({page})=>{
+ await setupApp(page);const thread={id:'customer-thread',business_id:OWNER,channel:'web',status:'automated',updated_at:new Date().toISOString()};let load,save;const mutations=[];
+ await page.route('http://127.0.0.1:5174/assistant-inbox/**',async route=>{
+  if(route.request().method()==='PATCH'){mutations.push(route.request().postDataJSON());await new Promise(r=>save=r);return route.fulfill({json:{status:'automated'}});}
+  if(new URL(route.request().url()).pathname.endsWith('/customer-thread')){await new Promise(r=>load=r);return route.fulfill({json:{thread,messages:[]}});}
+  return route.fulfill({json:{threads:[thread]}});
+ });
+ await page.goto('/?view=dashboard&tab=conversations');await page.getByRole('button',{name:/Customer conversation/}).click();
+ await expect(page.getByRole('button',{name:'Pause automation for staff'})).toBeDisabled();load();await expect(page.getByRole('button',{name:'Pause automation for staff'})).toBeEnabled();
+ await page.getByRole('button',{name:'Pause automation for staff'}).click();await expect(page.getByRole('button',{name:/Customer conversation/})).toBeDisabled();save();
+ await expect(page.getByRole('alert').filter({hasText:'Handoff change was not verified.'})).toBeVisible();await expect(page.getByText('Status: automated',{exact:true})).toBeVisible();expect(mutations).toEqual([{status:'human'}]);
+});

@@ -17,7 +17,7 @@ export function createAssistantService({ db, generate, knowledgeLoader=loadBusin
     if(result.error) {
       const code=result.error.code;
       throw error(['42501','P0001'].includes(code)?'Assistant unavailable: paused, expired or allowance exhausted.':code==='P0004'?'Assistant is busy. Please retry shortly.':code==='P0006'?'A message is already processing in this conversation.':code==='23514'?'This request identifier belongs to a different message.':'Conversation service temporarily unavailable.',
-        ['42501','P0001'].includes(code)?403:['P0004'].includes(code)?429:['P0006','23514'].includes(code)?409:503,code);
+        ['42501','P0001'].includes(code)?403:['P0004'].includes(code)?429:['P0006','P0007','23514'].includes(code)?409:503,code);
     }
     return result.data;
   }
@@ -31,10 +31,9 @@ export function createAssistantService({ db, generate, knowledgeLoader=loadBusin
   }
   async function history(thread,excludeRequestId) {
     let query=db.from('assistant_message_history').select('id,role,content,created_at,sequence,delivery_status,request_id,request_key').eq('business_id',thread.business_id).eq('thread_id',thread.id);
-    if(excludeRequestId)query=query.neq('request_id',excludeRequestId);
-    const result=await assistantDatabaseRequest(query.order('sequence',{ascending:false}).limit(24));
+    const result=await assistantDatabaseRequest(query.order('sequence',{ascending:false}).limit(excludeRequestId?26:24));
     if(result.error)throw error('Conversation history unavailable');
-    return (result.data||[]).reverse();
+    return (result.data||[]).filter(row=>!excludeRequestId||row.request_id!==excludeRequestId).slice(0,24).reverse();
   }
   async function durable(name,args) {
     // Database operations are idempotent; retry accepted checkpoints/commits, never generation.
@@ -42,7 +41,7 @@ export function createAssistantService({ db, generate, knowledgeLoader=loadBusin
       try{return await rpc(name,args);}catch(e){if(attempt===2||e.status<500)throw e;}
     }
   }
-  async function process({businessId,channel='web',sessionToken,identity,requestId,message,metadata={},signal,bookingSubmission}) {
+  async function process({businessId,channel='web',sessionToken,identity,requestId,message,metadata={},signal,bookingSubmission,_snapshotAttempts=0}) {
     if(typeof message!=='string'||!message.trim()||message.length>2000) throw error('Enter a message of 2,000 characters or fewer.',400);
     if(typeof requestId!=='string'||requestId.length<12||requestId.length>120) throw error('A stable request identifier is required.',400);
     const {thread,sessionToken:token}=await resolve({businessId,channel,sessionToken,identity});
@@ -72,7 +71,9 @@ export function createAssistantService({ db, generate, knowledgeLoader=loadBusin
       let slot;try{slot=validateBookingWindow({startAt:op.startAt,durationMinutes:serviceDurationMinutes(svc.duration),timezone:profile.timezone,hoursJson:profile.hours_json});}catch(e){throw error(e.message,422);}
       controlled={reply:'Booking request awaiting submission.',bookingIntent:true,intent:'BOOKING_REQUEST',bookingDraft:null,bookingAction:{serviceId:svc.id,name:op.customerName.trim(),contact:op.customerContact.trim(),...slot}};
     }else controlled=controlled || bookingDialogue({message,knowledge,profile,thread});
-    const claim=await rpc('claim_assistant_request',{p_business_id:businessId,p_thread_id:thread.id,p_request_key:requestId,p_message:message.trim(),p_message_hash:inputHash,p_needs_model:!controlled,p_metadata:metadata});
+    let claim;
+    try{claim=await rpc('claim_assistant_request',{p_business_id:businessId,p_thread_id:thread.id,p_request_key:requestId,p_message:message.trim(),p_message_hash:inputHash,p_needs_model:!controlled,p_metadata:metadata,p_expected_revision:thread.revision});}
+    catch(e){if(e.code==='P0007'&&_snapshotAttempts<2)return process({businessId,channel,sessionToken:token,identity,requestId,message,metadata,signal,bookingSubmission,_snapshotAttempts:_snapshotAttempts+1});throw e;}
     const req=claim.request;
     const wrap=result=>({...result,sessionToken:token,conversationId:thread.id,requestId,correlationId:req.id,preview:channel==='preview'});
     if(claim.state==='committed')return wrap(req.outcome);
@@ -103,16 +104,16 @@ export function createAssistantService({ db, generate, knowledgeLoader=loadBusin
       if(channel==='preview'&&controlled?.escalated)outcome.reply='In customer chat, this request would be recorded for staff review. This private preview has not notified staff or created a customer conversation.';
       // From this point a valid response exists: never release its reservation on a DB error.
       generated=true;
-      const checkpoint=await durable('checkpoint_assistant_reply',{p_request_id:req.id,p_outcome:outcome});
+      const checkpoint=await durable('checkpoint_assistant_reply',{p_request_id:req.id,p_outcome:outcome,p_attempt:req.attempt});
       if(!checkpoint)throw error('Response recovery requires review');
       const committed=await durable('commit_assistant_reply',{p_request_id:req.id});
-      logger.info?.('assistant.completed',{correlationId:req.id,channel,provider:outcome.provider,latencyMs:outcome.latencyMs,grounded:outcome.grounded,usage:outcome.usage,attempts:outcome.attempts,estimatedCostUsd:outcome.estimatedCostUsd});
+      logger.info?.('assistant.completed',{correlationId:req.id,channel,requestAttempt:req.attempt,provider:outcome.provider,latencyMs:outcome.latencyMs,grounded:outcome.grounded,usage:outcome.usage,attempts:outcome.attempts,estimatedCostUsd:outcome.estimatedCostUsd});
       return wrap(committed);
     } catch(e) {
       if(!generated) {
-        await durable('fail_assistant_request',{p_request_id:req.id,p_code:e.code||'generation_failed'}).catch(()=>logger.error?.('assistant.release_failed',{correlationId:req.id}));
+        await durable('fail_assistant_request',{p_request_id:req.id,p_code:e.code||'generation_failed',p_attempt:req.attempt}).catch(()=>logger.error?.('assistant.release_failed',{correlationId:req.id}));
       }
-      logger.error?.('assistant.failed',{correlationId:req.id,code:e.code||'persistence_failure',recoveryRequired:generated});
+      logger.error?.('assistant.failed',{correlationId:req.id,code:e.code||'persistence_failure',requestAttempt:req.attempt,recoveryRequired:generated});
       throw error(generated?'Your reply is awaiting recovery. Retry the same message; no second AI request will be made.':'The assistant is temporarily unavailable. Your message remains in this conversation. Please retry or contact the business.',503,e.code||'ASSISTANT_UNAVAILABLE');
     }
   }

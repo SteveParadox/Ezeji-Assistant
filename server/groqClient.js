@@ -8,7 +8,7 @@ export class ProviderError extends Error {
 }
 const number = (env, key, fallback, min, max) => {
   const n = env[key] === undefined ? fallback : Number(env[key]);
-  if (!Number.isFinite(n) || (key==='GROQ_MAX_ATTEMPTS'&&!Number.isInteger(n)) || n < min || n > max) throw new Error(`Invalid ${key}`);
+  if (!Number.isFinite(n) || (['GROQ_MAX_ATTEMPTS','GROQ_MAX_REPLY_TOKENS','GROQ_RESPONSE_TIMEOUT_MS','GROQ_CONNECTION_TIMEOUT_MS'].includes(key)&&!Number.isInteger(n)) || n < min || n > max) throw new Error(`Invalid ${key}`);
   return n;
 };
 export function groqConfiguration(env = process.env) {
@@ -45,6 +45,12 @@ export function parseCompletion(payload) {
   }
   return { reply, usage };
 }
+async function readWithDeadline(reader,signal) {
+  signal.throwIfAborted();
+  let aborted;
+  const deadline=new Promise((_,reject)=>{aborted=()=>{reader.cancel().catch(()=>{});reject(signal.reason);};signal.addEventListener('abort',aborted,{once:true});});
+  try{return await Promise.race([reader.read(),deadline]);}finally{signal.removeEventListener('abort',aborted);}
+}
 export function createGroqClient({ env = process.env, fetchImpl = fetch, sleep = delay, random = Math.random, clock = Date.now } = {}) {
   const config = groqConfiguration(env);
   return async ({ messages, correlationId, signal }) => {
@@ -64,7 +70,8 @@ export function createGroqClient({ env = process.env, fetchImpl = fetch, sleep =
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}`, 'X-Request-ID': correlationId }, body,
         });}finally{clearTimeout(connectTimer);}
         if (!response.ok) {
-          await response.body?.cancel();
+          // Cancellation cleanup must not block error classification or bounded retry.
+          void response.body?.cancel().catch(()=>{});
           throw new ProviderError(response.status === 429 ? 'rate_limited' : response.status === 401 || response.status === 403 ? 'provider_credentials' : response.status >= 500 ? 'provider_unavailable' : 'provider_request_rejected',
             { retryable: response.status === 429 || response.status >= 500, retryAfter: retryAfterMs(response.headers.get('retry-after'), clock()) });
         }
@@ -74,16 +81,16 @@ export function createGroqClient({ env = process.env, fetchImpl = fetch, sleep =
           const reader = response.body.getReader(); const chunks = []; let size = 0;
           while (true) {
             responseSignal.throwIfAborted();
-            const { value, done } = await reader.read(); if (done) break;
+            const { value, done } = await readWithDeadline(reader,responseSignal); if (done) break;
             size += value.length;
-            if (size > 64000) { await reader.cancel(); throw new ProviderError('oversized_response'); }
+            if (size > 64000) { void reader.cancel().catch(()=>{}); throw new ProviderError('oversized_response'); }
             chunks.push(Buffer.from(value));
           }
           payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
         } catch (error) { if (error instanceof ProviderError) throw error; if(responseSignal.aborted)throw new ProviderError('timeout'); throw new ProviderError('invalid_response'); }
         const result = parseCompletion(payload);
         return { ...result, provider: 'groq', model: config.model, latencyMs: clock() - started, attempts: attempt,
-          estimatedCostUsd: config.inputUsdPerMillion || config.outputUsdPerMillion
+          estimatedCostUsd: (config.inputUsdPerMillion || config.outputUsdPerMillion) && Number.isSafeInteger(result.usage.prompt_tokens) && Number.isSafeInteger(result.usage.completion_tokens)
             ? ((result.usage.prompt_tokens || 0) * config.inputUsdPerMillion + (result.usage.completion_tokens || 0) * config.outputUsdPerMillion) / 1e6 : null };
       } catch (error) {
         if (signal?.aborted) throw new ProviderError('cancelled');

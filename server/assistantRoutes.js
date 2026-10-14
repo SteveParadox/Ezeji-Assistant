@@ -46,8 +46,9 @@ export function attachAssistantRoutes(app,db,{generate=createGroqClient()}={}) {
     if(!UUID.test(b.businessId||'')||!UUID.test(b.requestId||'')||!SESSION_TOKEN.test(b.sessionToken||''))throw fail(400,'Valid booking identity is required.');
     await checkClient(req);
     const outcome=await service.process({businessId:b.businessId,sessionToken:b.sessionToken,requestId:b.requestId,message:'Submit the reviewed booking request',bookingSubmission:{serviceId:b.serviceId,customerName:b.customerName,customerContact:b.customerContact,startAt:b.startAt,confirmed:b.confirmed}});
-    if(outcome.bookingStatus!=='pending'||!outcome.bookingId)throw fail(503,'Pending booking was not verified.');
-    res.status(201).json({bookingId:outcome.bookingId,status:'pending',message:outcome.reply});
+    if(outcome.bookingStatus==='failed')return res.status(422).json({error:outcome.reply,code:'BOOKING_NOT_ACCEPTED',status:'failed'});
+    if(!['pending','confirmed','completed','rejected','canceled','no_show'].includes(outcome.bookingStatus)||!outcome.bookingId)throw fail(503,'Saved booking was not verified.');
+    res.status(outcome.bookingStatus==='pending'?201:200).json({bookingId:outcome.bookingId,status:outcome.bookingStatus,message:outcome.reply});
   }));
   app.post('/assistant-reply',send(false));app.post('/assistant-preview',send(true));
   async function customerThread(req,preview=false) {
@@ -103,14 +104,14 @@ export function attachAssistantRoutes(app,db,{generate=createGroqClient()}={}) {
   app.get('/assistant-inbox/:businessId',handle(async(req,res)=>{
     const businessId=req.params.businessId;await assistantAuth(req,db,businessId);
     const rows=await db.from('assistant_threads').select('id,channel,status,escalation_reason,created_at,updated_at')
-      .eq('business_id',businessId).neq('channel','preview').order('updated_at',{ascending:false}).limit(50);
+      .eq('business_id',businessId).neq('channel','preview').gt('expires_at',new Date().toISOString()).order('updated_at',{ascending:false}).limit(50);
     if(rows.error)throw fail(503,'Inbox unavailable.');
     res.json({threads:rows.data||[]});
   }));
   app.get('/assistant-inbox/:businessId/:threadId',handle(async(req,res)=>{
     const {businessId,threadId}=req.params;await assistantAuth(req,db,businessId);
-    const row=await db.from('assistant_threads').select('id,business_id,channel,status').eq('business_id',businessId).eq('id',threadId).neq('channel','preview').maybeSingle();
-    if(row.error)throw fail(503,'Conversation unavailable.');if(!row.data)throw fail(404,'Conversation not found.');
+    const row=await db.from('assistant_threads').select('id,business_id,channel,status,expires_at').eq('business_id',businessId).eq('id',threadId).neq('channel','preview').maybeSingle();
+    if(row.error)throw fail(503,'Conversation unavailable.');if(!row.data||Date.parse(row.data.expires_at)<=Date.now())throw fail(404,'Conversation not found or expired.');
     res.json({thread:row.data,messages:await service.history(row.data)});
   }));
   app.patch('/assistant-inbox/:businessId/:threadId',handle(async(req,res)=>{
