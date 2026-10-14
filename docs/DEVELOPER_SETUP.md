@@ -156,7 +156,7 @@ Key source files:
 | `src/NightlineApp.jsx` | Debugging auth events, routing, payment callbacks, account switching |
 | `src/authScreens.jsx`, `src/authLifecycle.js` | Signup, confirm email, recovery, business setup and secure checkout |
 | `src/DashboardShell.jsx`, `src/pages/` | Building or debugging workspace pages |
-| `src/ChatWidgetDemo.jsx` / `src/chatWidget.jsx` | Use **`src/chatWidget.jsx`** for the current customer/owner-preview component; the first name is not a file |
+| `src/chatWidget.jsx` | Customer chat UI, separate owner preview and conversation session handling |
 | `src/AssistantInbox.jsx` | Handoff inbox, thread detail and status changes |
 | `src/shared.jsx`, `src/workspaceApi.js` | Public/shared helpers, authenticated backend calls |
 | `server.js` | Express mount points, Paystack handlers, health, webhook |
