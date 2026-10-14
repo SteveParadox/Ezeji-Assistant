@@ -11,7 +11,7 @@ export const profile = {
   id:OWNER,name:'Stephen',business:'Bloom & Co. Salon',business_type:'Salon & Beauty',description:'Haircuts and colour appointments.',
   service_name:'Cut and colour',price:'NGN 15000',hours:'Monday 09:00–17:00',hours_json:[{day:'Monday',open:'09:00',close:'17:00',closed:false}],
   timezone:'Africa/Lagos',address:'20 Market Street',city_state_zip:'Lagos',plan:'Professional',billing_period:'monthly',currency:'NGN',payment_status:'active',
-  contact_phone:'+2348000000000',public_contact_email:'hello@example.test',assistant_name:'Bloom Assistant',tone:'Friendly & warm',greeting:'How can we help?',
+  contact_phone:'+2348000000000',public_contact_email:'hello@example.test',assistant_active:true,assistant_name:'Bloom Assistant',tone:'Friendly & warm',greeting:'How can we help?',
 };
 export async function setupApp(page, { signedIn = true, staff = false, empty = false, fail = '', payment = 'pending', failWrites = false, trial = false } = {}) {
   const data = {
@@ -27,6 +27,7 @@ export async function setupApp(page, { signedIn = true, staff = false, empty = f
   };
   if (trial) { Object.assign(data.profiles[0], {plan:'14-day trial',payment_status:'trial',trial_active:true,trial_ends_at:'2030-01-01T00:00:00Z'}); data.subscriptions=[]; }
   for (const [table, rows] of Object.entries(data)) if (table !== "profiles") data[table] = rows.map(row => ({...row,business_id:OWNER}));
+  const chatSessions=new Map();
   const writes=[]; const session=sessionFor(staff ? STAFF : OWNER);
   if (signedIn) await page.addInitScript(value => localStorage.setItem('sb-ezeji-test-auth-token',JSON.stringify(value)),session);
   await page.route('https://fonts.googleapis.com/**',route => route.abort());
@@ -66,6 +67,23 @@ export async function setupApp(page, { signedIn = true, staff = false, empty = f
     if(path==='/owner/ai-usage')return route.fulfill({json:{periodKey:'2026-10',consumed:52,reserved:1}});
     if(path==='/integrations/whatsapp')return route.fulfill({json:{connection:null}});
     if(path.startsWith('/verify-paystack/'))return route.fulfill({json:{verified:payment==='paid',status:payment}});
+    if(path.startsWith('/assistant-settings/')) {
+      if(req.method()==='PATCH'){const body=req.postDataJSON();writes.push({path,body});if(typeof body.active==='boolean')data.profiles[0].assistant_active=body.active;}
+      return route.fulfill({json:{active:data.profiles[0].assistant_active,readiness:{ready:true,missing:[],bookingReady:true},policies:{booking:'',cancellation:'',refund:''},languages:''}});
+    }
+    if(path.startsWith('/assistant-inbox/'))return route.fulfill({json:{threads:[]}});
+    if(path.startsWith('/assistant-metrics/'))return route.fulfill({json:{web:1,whatsapp:0,aiReplies:1,escalations:0,customerMessages:1,pendingBookings:1,active:true}});
+    if(path.startsWith('/assistant-session/')) {
+      const token=req.headers()['x-conversation-token'];
+      if(req.method()==='DELETE'){chatSessions.delete(token);return route.fulfill({json:{deleted:true,notice:'Chat content deleted. Booking requests and usage accounting are retained separately.'}});}
+      return chatSessions.has(token)?route.fulfill({json:{messages:chatSessions.get(token),status:'automated'}}):route.fulfill({status:404,json:{error:'Conversation not found'}});
+    }
+    if(path==='/assistant-booking-request'){writes.push({path,body:req.postDataJSON()});return route.fulfill({status:201,json:{bookingId:'booking-pending',status:'pending'}});}
+    if(path==='/assistant-reply') {
+      const body=req.postDataJSON();writes.push({path,body});const messages=chatSessions.get(body.sessionToken)||[];
+      if(!messages.some(m=>m.id===body.requestId)){messages.push({id:body.requestId,request_key:body.requestId,role:'user',content:body.message,created_at:new Date().toISOString()},{id:body.requestId+'-reply',request_key:body.requestId,role:'assistant',content:'Haircut costs NGN 15000.',created_at:new Date().toISOString()});chatSessions.set(body.sessionToken,messages);}
+      return route.fulfill({json:{reply:'Haircut costs NGN 15000.',provider:'groq',sessionToken:body.sessionToken,requestId:body.requestId}});
+    }
     if(path==='/assistant-preview') { writes.push({path,body:req.postDataJSON(),authorization:req.headers().authorization}); return route.fulfill({json:{reply:'Your saved hours are Monday, 09:00 to 17:00.',preview:true,provider:'groq'}}); }
     return route.fulfill({status:503,json:{error:'Unconfigured test endpoint'}});
   });

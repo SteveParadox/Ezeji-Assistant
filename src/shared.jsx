@@ -23,7 +23,7 @@ export async function fetchPublicProfile(businessId) {
   return payload.business;
 }
 
-export async function fetchProfile(userId, email, userMetadata = {}) {
+export async function fetchProfile(userId, email, _userMetadata = {}) {
   const { data, error } = await supabase
     .from("profiles")
     .select("*")
@@ -82,7 +82,7 @@ export async function fetchProfile(userId, email, userMetadata = {}) {
     address: data.address,
     cityStateZip: data.city_state_zip,
     disappearingDefault: data.disappearing_default,
-    assistantLive: userMetadata?.assistant_live !== false,
+    assistantLive: data.assistant_active !== false,
   };
 }
 
@@ -137,12 +137,7 @@ export async function upsertProfile(userId, fields) {
   if (error) throw error;
   if (!data) throw new Error("Business profile is missing or access was denied.");
 
-  if (typeof fields.assistantLive === "boolean") {
-    const { error: metadataError } = await supabase.auth.updateUser({
-      data: { assistant_live: fields.assistantLive },
-    });
-    if (metadataError) throw metadataError;
-  }
+
 }
 
 export function TextField({ label, type = "text", icon: Icon, value, onChange, placeholder, help, error, ...inputProps }) {

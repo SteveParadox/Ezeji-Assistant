@@ -18,9 +18,10 @@ test("offline replies never fabricate opening hours", () => {
   assert.doesNotMatch(reply, /Mon-|10:00|default/i);
 });
 
-test("offline replies still include actually saved business prices", () => {
+test("offline status does not imply cached business prices are current", () => {
   const reply = buildOfflineFallbackReply("What does a haircut cost?", {
     business: "Example Salon", businessType: "Salon & Beauty", serviceName: "Haircut", price: "NGN 12000",
   });
-  assert.match(reply, /NGN 12000/);
+  assert.match(reply, /temporarily unavailable/);
+  assert.doesNotMatch(reply, /NGN 12000/);
 });

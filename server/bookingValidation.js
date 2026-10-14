@@ -25,7 +25,10 @@ function asMinutes(value) {
   return hh<24&&mm<60?hh*60+mm:null;
 }
 export function validateBookingWindow({startAt,durationMinutes,timezone,hoursJson,now=Date.now()}) {
-  if (typeof startAt!=="string" || !/^\d{4}-\d{2}-\d{2}T/.test(startAt)) throw new Error("An ISO booking start time is required");
+  if (typeof startAt!=="string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00(?:\.000)?(?:Z|[+-]\d{2}:\d{2})$/.test(startAt)) throw new Error("An ISO booking start time with timezone and whole minutes is required");
+  const [year,month,day]=startAt.slice(0,10).split('-').map(Number);
+  const calendar=new Date(Date.UTC(year,month-1,day));
+  if(calendar.getUTCFullYear()!==year||calendar.getUTCMonth()!==month-1||calendar.getUTCDate()!==day)throw new Error('Invalid appointment calendar date');
   const start=new Date(startAt);
   if (!Number.isFinite(start.getTime()) || !Number.isInteger(durationMinutes)
     || durationMinutes<15 || durationMinutes>480) throw new Error("Invalid appointment date or duration");

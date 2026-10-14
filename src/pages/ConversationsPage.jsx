@@ -1,3 +1,4 @@
+import { AssistantInbox } from "../AssistantInbox";
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabaseClient";
 import { downloadCsv, timeAgo } from "../shared";
@@ -73,6 +74,7 @@ export function ConversationsPage({ user }) {
       {canExport && convos.length > 0 && <button className="btn btn--outline" onClick={exportCsv} disabled={isExporting}>{isExporting ? "Preparing CSV..." : "Export all conversations"}</button>}
     </div>
     {(loadError || exportError) && <p className="auth-error" role="alert">{loadError || exportError}</p>}
+    <AssistantInbox businessId={user.id} />
     <div className="filter-toolbar"><label className="search-field"><span className="sr-only">Search conversations</span><Search size={16} aria-hidden="true" />
       <input className="field-input" placeholder="Search messages and replies" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <select className="field-input" aria-label="Conversation status" value={status} onChange={event => setStatus(event.target.value)}>

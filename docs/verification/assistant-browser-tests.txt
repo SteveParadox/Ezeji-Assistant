@@ -1,0 +1,73 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> ai-assistant@0.0.0 test:browser
+> playwright test
+
+[WebServer] (node:425) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+[WebServer] npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+[WebServer] (node:438) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+[WebServer] (Use `node --trace-warnings ...` to show where the warning was created)
+
+Running 54 tests using 2 workers
+
+(node:473) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:472) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✓   2 tests/browser/chat.spec.js:17:1 › failed message retries its original identity without a duplicate user bubble (3.7s)
+  ✓   1 tests/browser/chat.spec.js:5:1 › customer chat uses isolated server session, restores after refresh, and distinguishes new conversation from deletion (7.1s)
+  ✓   3 tests/browser/chat.spec.js:25:1 › multiline composition, loading guard, keyboard controls and narrow layout are accessible (4.3s)
+  ✓   5 tests/browser/chat.spec.js:41:1 › booking form requires review and explicit confirmation before saving a pending request (2.3s)
+  ✓   4 tests/browser/chat.spec.js:36:1 › owner activation is saved through authenticated backend settings (3.9s)
+  ✓   6 tests/browser/chat.spec.js:50:1 › restored committed reply clears an interrupted request and is not duplicated on retry (3.0s)
+  ✓   7 tests/browser/marketing-auth.spec.js:5:3 › landing and four-field signup fit 320px (2.5s)
+  ✓   9 tests/browser/marketing-auth.spec.js:5:3 › landing and four-field signup fit 375px (3.0s)
+  ✓   8 tests/browser/marketing-auth.spec.js:5:3 › landing and four-field signup fit 390px (3.1s)
+  ✓  11 tests/browser/marketing-auth.spec.js:5:3 › landing and four-field signup fit 768px (1.6s)
+  ✓  10 tests/browser/marketing-auth.spec.js:5:3 › landing and four-field signup fit 430px (1.7s)
+  ✓  12 tests/browser/marketing-auth.spec.js:5:3 › landing and four-field signup fit 1024px (2.4s)
+  ✓  14 tests/browser/marketing-auth.spec.js:5:3 › landing and four-field signup fit 1920px (2.8s)
+  ✓  13 tests/browser/marketing-auth.spec.js:5:3 › landing and four-field signup fit 1440px (5.3s)
+  ✓  15 tests/browser/marketing-auth.spec.js:17:1 › mobile marketing drawer closes with Escape and section selection (2.4s)
+  ✓  16 tests/browser/marketing-auth.spec.js:24:1 › signup without an immediate Supabase session reaches email verification and keeps the selected plan (2.7s)
+  ✓  18 tests/browser/marketing-auth.spec.js:41:1 › recovery callback exposes new-password form and session-bound save (2.0s)
+  ✓  17 tests/browser/marketing-auth.spec.js:34:1 › password controls and keyboard login submission work (3.0s)
+  ✓  19 tests/browser/marketing-auth.spec.js:47:1 › pending payment keeps exact reference despite a prior active same-plan subscription (2.2s)
+  ✓  20 tests/browser/marketing-auth.spec.js:55:1 › only settled payment clears reference and returns to active dashboard (2.5s)
+  ✓  22 tests/browser/ui-regressions.spec.js:4:1 › business profile no longer advertises Saved after unsaved edits (4.0s)
+  ✓  23 tests/browser/ui-regressions.spec.js:13:1 › assistant voice no longer advertises Saved after unsaved edits (2.8s)
+  ✓  24 tests/browser/ui-regressions.spec.js:22:1 › business hours no longer advertise Saved after unsaved edits (2.6s)
+  ✓  25 tests/browser/ui-regressions.spec.js:31:1 › WhatsApp setup never offers an unreachable localhost webhook as a real callback (2.1s)
+  ✓  26 tests/browser/ui-regressions.spec.js:39:1 › customer local-history preference does not falsely promise server deletion (1.4s)
+  ✓  27 tests/browser/ui-regressions.spec.js:46:1 › late profile save cannot falsely confirm a newer unsaved change (2.7s)
+  ✓  28 tests/browser/workspace.spec.js:16:3 › all workspace pages fit 320px (10.3s)
+  ✓  21 tests/browser/marketing-auth.spec.js:60:1 › landing, signup and all workspace pages have no automated WCAG A/AA violations (27.5s)
+  ✓  29 tests/browser/workspace.spec.js:16:3 › all workspace pages fit 375px (15.6s)
+  ✓  30 tests/browser/workspace.spec.js:16:3 › all workspace pages fit 390px (16.5s)
+  ✓  31 tests/browser/workspace.spec.js:16:3 › all workspace pages fit 430px (16.2s)
+  ✓  32 tests/browser/workspace.spec.js:16:3 › all workspace pages fit 768px (17.9s)
+  ✓  33 tests/browser/workspace.spec.js:16:3 › all workspace pages fit 1024px (16.9s)
+  ✓  34 tests/browser/workspace.spec.js:16:3 › all workspace pages fit 1440px (24.4s)
+  ✓  35 tests/browser/workspace.spec.js:16:3 › all workspace pages fit 1920px (17.1s)
+  ✓  37 tests/browser/workspace.spec.js:49:1 › inbox filters selected saved exchanges without inventing a resolved status (4.3s)
+  ✓  36 tests/browser/workspace.spec.js:39:1 › mobile drawer supports focus containment, Escape, destination selection and resize (12.2s)
+  ✓  38 tests/browser/workspace.spec.js:58:1 › FAQ confirmation can be dismissed and preserves unfinished input (4.0s)
+  ✓  39 tests/browser/workspace.spec.js:70:1 › booking is pending until staff confirms (3.2s)
+  ✓  40 tests/browser/workspace.spec.js:75:1 › staff URLs and navigation never expose owner-only pages (2.2s)
+  ✓  41 tests/browser/workspace.spec.js:81:1 › assistant preview uses authenticated owner endpoint and prior-only history (3.2s)
+  ✓  43 tests/browser/workspace.spec.js:96:1 › URL navigation, refresh, logout, and landing styles preserve the workspace (7.7s)
+  ✓  42 tests/browser/workspace.spec.js:90:1 › load errors are visible instead of fabricated zero activity (10.1s)
+  ✓  44 tests/browser/workspace.spec.js:106:1 › failed booking update remains pending with a visible error (3.7s)
+  ✓  45 tests/browser/workspace.spec.js:111:1 › private preview never reads, deletes or persists customer chat history (3.2s)
+  ✓  47 tests/browser/workspace.spec.js:130:1 › onboarding readiness comes from saved rows and preserves selected paid plan (3.7s)
+  ✓  46 tests/browser/workspace.spec.js:120:1 › services and FAQs save verified rows, and rejected deletion preserves saved content (4.4s)
+  ✓  48 tests/browser/workspace.spec.js:139:1 › newly registered businesses with blank hours can configure and save their week (2.7s)
+  ✓  49 tests/browser/workspace.spec.js:155:1 › business profile links to canonical weekly hours editor instead of accepting conflicting text (2.9s)
+  ✓  50 tests/browser/workspace.spec.js:163:1 › weekly hours save actual input and preserve timezone (2.1s)
+  ✓  51 tests/browser/workspace.spec.js:169:1 › the authoritative palette and reduced-motion behavior are preserved (2.5s)
+  ✓  52 tests/browser/workspace.spec.js:175:1 › navigation dismisses stale confirmations before they can write in another workspace (3.0s)
+  ✓  53 tests/browser/workspace.spec.js:184:1 › WhatsApp connection cannot be disconnected during an in-flight verification (3.7s)
+  ✓  54 tests/browser/workspace.spec.js:209:1 › a stale success response cannot falsely confirm a booking (3.2s)
+
+  54 passed (2.8m)
