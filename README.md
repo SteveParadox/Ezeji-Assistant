@@ -1,51 +1,80 @@
-# React + Vite
+# Ezeji Assistant
 
-## Deployment
+Ezeji Assistant is a React/Vite business workspace with a Node.js/Express API, Supabase Auth/PostgreSQL, server-grounded AI assistance via Groq, Paystack NGN checkout, customer web chat, booking-request handling, staff access, and optional Meta WhatsApp integration.
 
-Deploy the frontend to Vercel and the Express backend to Render (or another Node host).
+**Implementation is not proof of production readiness.** Before taking real payments or handling customer data, follow the staging, security and provider-verification gates in the [deployment runbook](docs/DEPLOYMENT_RUNBOOK.md). The `/health` endpoint is a liveness response, not a deployment sign-off.
 
-### Vercel
+## Documentation: choose your path
 
-Set these Vercel environment variables before deploying:
+| What you need | Step-by-step guide |
+| --- | --- |
+| Register a business and use every workspace page | [Business owner and staff guide](docs/USER_GUIDE.md) |
+| Install the repo, configure development env, and understand the code | [Developer setup and architecture](docs/DEVELOPER_SETUP.md) |
+| Prepare Supabase migrations, set up Auth/Paystack/Groq/WhatsApp, deploy Vercel + Render | [Staging and deployment runbook](docs/DEPLOYMENT_RUNBOOK.md) |
+| Operate jobs, investigate payments, recover assistant requests, rotate secrets, handle incidents | [Operations and troubleshooting](docs/OPERATIONS_TROUBLESHOOTING.md) |
+| Run unit, browser, database, and provider acceptance tests | [Testing and release checklist](docs/TESTING_AND_RELEASE.md) |
 
-```text
-VITE_SUPABASE_URL
-VITE_SUPABASE_ANON_KEY
-VITE_API_URL=https://your-render-api.onrender.com
+For architecture/history and historical audit findings, see [assistant implementation report](docs/ASSISTANT_IMPLEMENTATION_REPORT.md), [UI redesign](docs/PREMIUM_UI_REDESIGN.md), and [post-implementation corrective audit](docs/ASSISTANT_CORRECTIVE_AUDIT_20261014.md). Those reports describe specific points in time; **current source code and migrations take precedence**.
+
+## Local quick start (development only)
+
+**Prerequisites:** Node.js 22, npm, and configured Supabase project. Running just the frontend will not make checkout, web chat, or assistant features work.
+
+```bash
+git clone https://github.com/SteveParadox/Ezeji-Assistant.git
+cd Ezeji-Assistant
+npm ci
+cp .env.example .env
 ```
 
-Build command: `npm run build`
+On Windows PowerShell, use `Copy-Item .env.example .env` instead of `cp`. Edit `.env`: set `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_API_URL=http://localhost:5174` and the backend `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`; configure Groq and Paystack test credentials for their features. These are **placeholders** until you supply real development secrets. Never commit `.env` or expose `SUPABASE_SERVICE_ROLE_KEY` under a `VITE_` name.
 
-### Backend
+Start two terminals:
 
-Set the variables from `.env.example` in the backend host. Keep secret keys there only:
+```bash
+# Terminal 1: API
+node server.js
 
-```text
-GROQ_API_KEY
-GROQ_MODEL
-SUPABASE_URL
-SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY
-APP_URL=https://your-vercel-domain.vercel.app
+# Terminal 2: web app
+npm run dev
 ```
 
-After deployment, put the backend URL into Vercel as `VITE_API_URL`, then redeploy the frontend.
+Open the URL printed by Vite (normally `http://localhost:5173`). From another terminal:
 
-Run `supabase/invoices.sql` and `supabase/staff_access.sql` in the Supabase SQL Editor before enabling payment webhooks or staff invitations.
+```bash
+curl http://localhost:5174/health
+curl http://localhost:5174/health/ready
+npm run lint
+npm test
+npm run build
+```
 
-Staff invitations use Supabase Auth email delivery. Keep `SUPABASE_SERVICE_ROLE_KEY` on the server only; never prefix it with `VITE_`. Configure Supabase Auth email delivery and allow the production `APP_URL` as a redirect URL before sending invitations. For the Vercel API route in this project, set `VITE_API_URL` to `https://your-vercel-domain.vercel.app/api` and `APP_URL` to `https://your-vercel-domain.vercel.app`.
+`/health/ready` returns non-200 while required database/assistant dependencies are missing. That is expected until the development schema and credentials are configured. Full DB setup and the isolated tests are documented separately; **do not point test database variables at production**.
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+## Important system behavior
 
-Currently, two official plugins are available:
+- Business email confirmation and account provisioning must complete before authenticated checkout.
+- Trial/paid entitlements and AI usage are determined server-side, not by changing browser-visible plan values.
+- Paystack browser return URLs **do not prove payment**. Only verified provider transaction reconciliation and committed database settlement activate a paid term.
+- AI preview is owner-authenticated and separate from customer conversations; successful generated preview replies can consume quota.
+- Customer booking requests are not automatically guaranteed appointments. Confirm/decline them according to the saved status and business availability.
+- WhatsApp credential storage is not proof of webhook delivery. A deployed HTTPS callback, Meta verification, event subscriptions and running worker are additionally required.
+- Sensitive provider keys live on the API/worker/cron hosts only; `VITE_*` is compiled into the public frontend.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Repository map
 
-## React Compiler
+| Location | Responsibility |
+| --- | --- |
+| `src/NightlineApp.jsx`, `src/authScreens.jsx`, `src/authLifecycle.js` | Auth, onboarding, routing and checkout return |
+| `src/DashboardShell.jsx`, `src/pages/`, `src/ui.jsx` | Workspace, settings and visual components |
+| `src/chatWidget.jsx`, `src/AssistantInbox.jsx` | Customer chat/preview and owner conversation handoff UI |
+| `server.js`, `server/` | API, payment reconciliation, business facts, AI processing, staff and WhatsApp |
+| `shared/planCatalog.js` | NGN/kobo pricing catalog shared with checkout |
+| `supabase/migrations/` | Ordered SQL schema, security and assistant changes |
+| `scripts/` | Billing cron, assistant maintenance and WhatsApp worker |
+| `tests/browser/` | Playwright browser journeys |
+| `render.yaml`, `api/[...path].js` | Render services and optional Vercel API routing |
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Support and contribution
 
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+First check the [troubleshooting guide](docs/OPERATIONS_TROUBLESHOOTING.md). When reporting a reproducible bug, provide the screen or API path, reproduction steps, expected versus actual behavior, browser/version, sanitized request ID, and relevant redacted logs. **Never post tokens, credentials, private customer messages, or full authorization headers in an issue.**
