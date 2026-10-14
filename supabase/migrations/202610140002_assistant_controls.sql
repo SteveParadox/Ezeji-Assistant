@@ -23,14 +23,20 @@ returns trigger language plpgsql set search_path=pg_catalog,public
 as $fn$
 begin
  if tg_table_name='profiles' then
-   if length(coalesce(new.business,''))>160 or length(coalesce(new.description,''))>2000 or
-      length(coalesce(new.assistant_name,''))>80 or length(coalesce(new.greeting,''))>500 or length(coalesce(new.escalation_keywords,''))>500 or
-      length(coalesce(new.booking_policy,''))>1500 or length(coalesce(new.cancellation_policy,''))>1500 or length(coalesce(new.refund_policy,''))>1500 or length(coalesce(new.language_preferences,''))>160 then
+   if (new.business is distinct from old.business and length(coalesce(new.business,''))>160) or
+      (new.description is distinct from old.description and length(coalesce(new.description,''))>2000) or
+      (new.assistant_name is distinct from old.assistant_name and length(coalesce(new.assistant_name,''))>80) or
+      (new.greeting is distinct from old.greeting and length(coalesce(new.greeting,''))>500) or
+      (new.escalation_keywords is distinct from old.escalation_keywords and length(coalesce(new.escalation_keywords,''))>500) or
+      (new.booking_policy is distinct from old.booking_policy and length(coalesce(new.booking_policy,''))>1500) or
+      (new.cancellation_policy is distinct from old.cancellation_policy and length(coalesce(new.cancellation_policy,''))>1500) or
+      (new.refund_policy is distinct from old.refund_policy and length(coalesce(new.refund_policy,''))>1500) or
+      (new.language_preferences is distinct from old.language_preferences and length(coalesce(new.language_preferences,''))>160) then
      raise exception 'Business knowledge exceeds allowed lengths' using errcode='23514';
    end if;
-   if new.timezone not in(select name from pg_timezone_names) then raise exception 'Invalid business timezone' using errcode='23514'; end if;
-   if new.tone is not null and new.tone not in('Friendly & warm','Professional','Playful','Concise') then raise exception 'Invalid assistant tone' using errcode='23514'; end if;
-   if auth.role()<>'service_role' and new.plan not in('Professional','Business') and
+   if new.timezone is distinct from old.timezone and new.timezone not in(select name from pg_timezone_names) then raise exception 'Invalid business timezone' using errcode='23514'; end if;
+   if new.tone is distinct from old.tone and new.tone is not null and new.tone not in('Friendly & warm','Professional','Playful','Concise') then raise exception 'Invalid assistant tone' using errcode='23514'; end if;
+   if auth.role()<>'service_role' and not public.has_active_premium_plan(new.id) and
       (new.assistant_name is distinct from old.assistant_name or new.tone is distinct from old.tone or new.greeting is distinct from old.greeting or new.escalation_keywords is distinct from old.escalation_keywords) then
      raise exception 'Custom personality requires a premium plan' using errcode='42501';
    end if;
@@ -42,7 +48,7 @@ begin
  return new;
 end;
 $fn$;
-create trigger validate_assistant_profile before update on public.profiles for each row execute function public.validate_assistant_knowledge_write();
+create trigger validate_assistant_profile before update of business,description,assistant_name,tone,greeting,escalation_keywords,booking_policy,cancellation_policy,refund_policy,language_preferences,timezone on public.profiles for each row execute function public.validate_assistant_knowledge_write();
 create trigger validate_assistant_services before insert or update on public.services for each row execute function public.validate_assistant_knowledge_write();
 create trigger validate_assistant_faqs before insert or update on public.faqs for each row execute function public.validate_assistant_knowledge_write();
 create function public.assistant_schema_ready() returns boolean language sql stable security definer set search_path=pg_catalog,public as $fn$

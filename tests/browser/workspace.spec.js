@@ -83,7 +83,8 @@ test('assistant preview uses authenticated owner endpoint and prior-only history
   await page.getByRole('button',{name:'What are your hours?',exact:true}).click();
   await expect(page.getByText('Your saved hours are Monday, 09:00 to 17:00.',{exact:true})).toBeVisible();
   const preview=writes.find(row=>row.path==='/assistant-preview'); expect(preview.authorization).toMatch(/^Bearer /);
-  expect(preview.body.conversation.some(row=>row.text===preview.body.message)).toBe(false);
+  expect(preview.body.conversation).toBeUndefined();
+  expect(preview.body.sessionToken).toMatch(/^[a-f0-9]{64}$/);
   expect(writes.filter(row=>['bookings','conversations'].includes(row.table))).toHaveLength(0);
 });
 test('load errors are visible instead of fabricated zero activity', async ({page}) => {
@@ -112,7 +113,7 @@ test('private preview never reads, deletes or persists customer chat history',as
   await page.addInitScript(id=>{localStorage.setItem(`nightline-chat-history-${id}`,JSON.stringify([{from:'customer',text:'Private customer history'}]));localStorage.setItem(`nightline-disappearing-messages-${id}`,'false');},OWNER);
   await page.goto('/?view=dashboard&tab=ai'); await expect(page.getByText('Private customer history',{exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'What are your hours?',exact:true}).click(); await expect(page.getByText('Your saved hours are Monday, 09:00 to 17:00.',{exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Clear chat',exact:true}).click();
+  await page.getByRole('button',{name:'Start new conversation',exact:true}).click();
   expect(await page.evaluate(id=>JSON.parse(localStorage.getItem(`nightline-chat-history-${id}`))[0].text,OWNER)).toBe('Private customer history');
   expect(await page.evaluate(id=>localStorage.getItem(`nightline-disappearing-messages-${id}`),OWNER)).toBe('false');
 });
@@ -207,7 +208,7 @@ test('WhatsApp connection cannot be disconnected during an in-flight verificatio
 
 test('a stale success response cannot falsely confirm a booking',async({page})=>{
   await setupApp(page);
-  await page.route('https://ezeji-test.supabase.co/rest/v1/bookings',async route=>{
+  await page.route('https://ezeji-test.supabase.co/rest/v1/bookings**',async route=>{
     if(route.request().method()==='PATCH'){
       return route.fulfill({json:[{id:'booking-1',status:'pending'}],headers:{'content-type':'application/json'}});
     }

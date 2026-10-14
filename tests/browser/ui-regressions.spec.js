@@ -40,22 +40,24 @@ test('customer local-history preference does not falsely promise server deletion
   await setupApp(page);
   await page.goto(`/?view=chat&biz=${OWNER}`);
   await expect(page.getByRole('button', { name: /Stop storing messages on this device/ })).toBeVisible();
-  await expect(page.getByText(/business may still retain customer exchanges on its server/)).toBeVisible();
+  await expect(page.getByText(/Chat content expires after 30 days/)).toBeVisible();
 });
 
 test('late profile save cannot falsely confirm a newer unsaved change', async ({ page }) => {
   await setupApp(page);
+  let releaseSave;
   await page.route('https://ezeji-test.supabase.co/rest/v1/profiles**', async route => {
     if (route.request().method() === 'PATCH') {
-      await new Promise(resolve => setTimeout(resolve, 400));
+      await new Promise(resolve => {releaseSave=resolve;});
     }
     await route.fallback();
   });
   await page.goto('/?view=dashboard&tab=profile');
-  const save = page.getByRole('button', { name: 'Save changes' });
+  const save = page.getByRole('button', { name: /^(Save changes|Saving\.\.\.)$/ });
   await save.click();
   await expect(save).toBeDisabled();
   await page.getByRole('textbox', { name: 'Business name' }).fill('This edit happened during an in-flight save');
+  releaseSave();
   await expect(save).toBeEnabled();
   await expect(page.getByText('Saved successfully')).toHaveCount(0);
 });

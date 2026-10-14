@@ -8,7 +8,7 @@ export class ProviderError extends Error {
 }
 const number = (env, key, fallback, min, max) => {
   const n = env[key] === undefined ? fallback : Number(env[key]);
-  if (!Number.isFinite(n) || n < min || n > max) throw new Error(`Invalid ${key}`);
+  if (!Number.isFinite(n) || (key==='GROQ_MAX_ATTEMPTS'&&!Number.isInteger(n)) || n < min || n > max) throw new Error(`Invalid ${key}`);
   return n;
 };
 export function groqConfiguration(env = process.env) {

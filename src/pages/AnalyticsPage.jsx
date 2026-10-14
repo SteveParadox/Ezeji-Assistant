@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { workspaceApi } from "../workspaceApi";
 import { supabase } from "../supabaseClient";
 import { StatCard, ANALYTICS_TIER } from "../shared";
 import { EmptyState, Skeleton } from "../ui";
@@ -6,6 +7,8 @@ import { hasActivePremiumPlan } from "../planAccess";
 import { fetchAllPages } from "../dataPaging";
 
 export function AnalyticsPage({ user }) {
+  const [assistantMetrics,setAssistantMetrics]=useState(null),[metricsError,setMetricsError]=useState("");
+  useEffect(()=>{let current=true;workspaceApi(`/assistant-metrics/${user.id}`).then(data=>{if(current)setAssistantMetrics(data);}).catch(()=>{if(current)setMetricsError("Conversation-session metrics are unavailable.");});return()=>{current=false};},[user.id]);
   const plan = user?.plan || "14-day trial";
   const tier = hasActivePremiumPlan(user) ? ANALYTICS_TIER[plan] ?? "basic" : "basic";
   const [rows, setRows] = useState([]);
@@ -57,6 +60,10 @@ export function AnalyticsPage({ user }) {
           {[7,30,90].map(days => <option key={days} value={days}>Last {days} days</option>)}
         </select></div>
       {error && <p className="auth-error" role="alert">{error}</p>}
+      {metricsError&&<p className="panel-help" role="status">{metricsError}</p>}
+      {assistantMetrics&&<section className="panel"><h2 className="panel-title">Customer sessions · retained 30 days</h2><div className="stat-grid">
+        <StatCard label="Web conversations" value={assistantMetrics.web}/><StatCard label="WhatsApp conversations" value={assistantMetrics.whatsapp}/><StatCard label="Awaiting staff" value={assistantMetrics.escalations}/><StatCard label="AI replies" value={assistantMetrics.aiReplies}/>
+      </div><p className="panel-help">{assistantMetrics.customerMessages} customer messages · {assistantMetrics.pendingBookings} pending booking requests · Assistant {assistantMetrics.active?"active":"paused"}. Subscription eligibility applies separately.</p></section>}
       <div className="stat-grid">
         <StatCard label="Total conversations" value={error ? "—" : String(total)} loading={loading} sub={`last ${period} days`} />
         <StatCard label="Not escalated" value={error ? "—" : `${resolutionRate}%`} loading={loading} accent />

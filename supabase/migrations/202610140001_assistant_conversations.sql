@@ -1,6 +1,13 @@
 -- Durable channel-isolated assistant sessions, request replay and atomic reply/usage commit.
 begin;
 alter table public.profiles add column if not exists assistant_active boolean not null default true;
+-- Preserve existing owner pause choices, then require activation for newly created businesses.
+do $pause$ begin
+ if exists(select 1 from information_schema.columns where table_schema='auth' and table_name='users' and column_name='raw_user_meta_data') then
+   execute 'update public.profiles p set assistant_active=false from auth.users u where u.id=p.id and u.raw_user_meta_data->>''assistant_live''=''false''';
+ end if;
+end;$pause$;
+alter table public.profiles alter column assistant_active set default false;
 alter table public.profiles add column if not exists booking_policy text;
 alter table public.profiles add column if not exists cancellation_policy text;
 alter table public.profiles add column if not exists refund_policy text;
@@ -30,7 +37,7 @@ create table public.assistant_requests(
  reservation_id uuid references public.usage_reservations(id),
  outcome jsonb, error_code text,
  channel_metadata jsonb not null default '{}',
- lease_until timestamptz not null default now()+interval '90 seconds',
+ lease_until timestamptz not null default now()+interval '3 minutes',
  created_at timestamptz not null default now(), updated_at timestamptz not null default now(),
  unique(business_id,thread_id,request_key), unique(id,business_id),
  foreign key(thread_id,business_id) references public.assistant_threads(id,business_id) on delete cascade
@@ -128,7 +135,7 @@ begin
    insert into public.assistant_requests(business_id,thread_id,request_key,message_hash,channel_metadata)
    values(p_business_id,t.id,p_request_key,p_message_hash,p_metadata) returning * into r;
  else
-   update public.assistant_requests set status='processing',attempt=attempt+1,error_code=null,lease_until=now()+interval '90 seconds',updated_at=now() where id=r.id returning * into r;
+   update public.assistant_requests set status='processing',attempt=attempt+1,error_code=null,lease_until=now()+interval '3 minutes',updated_at=now() where id=r.id returning * into r;
  end if;
  if p_needs_model then
    reservation:=public.reserve_ai_usage(p.id,case when p.plan='14-day trial' then 'trial' else to_char(now() at time zone 'UTC','YYYY-MM') end,'assistant:'||r.id::text||':'||r.attempt::text);
@@ -151,9 +158,10 @@ returns boolean language plpgsql security definer set search_path=pg_catalog,pub
 as $fn$
 begin
  if coalesce(auth.role(),'')<>'service_role' then raise exception 'Server only' using errcode='42501'; end if;
- if jsonb_typeof(p_outcome->'reply')<>'string' or length(p_outcome->>'reply') not between 1 and 8000 then raise exception 'Invalid reply' using errcode='22023'; end if;
+ if coalesce(jsonb_typeof(p_outcome->'reply'),'')<>'string' or length(p_outcome->>'reply') not between 1 and 8000 then raise exception 'Invalid reply' using errcode='22023'; end if;
  update public.assistant_requests set outcome=p_outcome,status='generated',updated_at=now() where id=p_request_id and status='processing';
- return found;
+ if found then return true; end if;
+ return exists(select 1 from public.assistant_requests where id=p_request_id and status='generated' and outcome=p_outcome);
 end;
 $fn$;
 create function public.commit_assistant_reply(p_request_id uuid)
@@ -178,7 +186,7 @@ begin
    r.outcome:=(r.outcome-'bookingAction')||jsonb_build_object('bookingId',booking_id,'bookingStatus','pending','reply','Booking request '||booking_id::text||' has been saved with pending status. Staff must confirm; no appointment is reserved.');
  end if;
  insert into public.assistant_messages(business_id,thread_id,request_id,role,content,delivery_status)
- values(r.business_id,r.thread_id,r.id,'assistant',r.outcome->>'reply',case when t.channel='whatsapp' then 'queued' else 'stored' end) on conflict(request_id,role) do nothing;
+ values(r.business_id,r.thread_id,r.id,'assistant',r.outcome->>'reply',case when t.channel='whatsapp' and not coalesce((r.outcome->>'suppressDelivery')::boolean,false) then 'queued' else 'stored' end) on conflict(request_id,role) do nothing;
  if t.channel<>'preview' then
    select content into msg from public.assistant_messages where request_id=r.id and role='user';
    insert into public.conversations(business_id,customer_message,ai_reply,escalated,booking_intent,assistant_request_id,thread_id,channel)

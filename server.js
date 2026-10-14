@@ -403,6 +403,10 @@ app.post('/booking-requests', async (req,res) => {
   try {
     if (!supabase) return res.status(503).json({error:'Booking database unavailable'});
     const {businessId,serviceId,customerName,customerContact,startAt,requestId} = req.body || {};
+    const clientHash=crypto.createHmac('sha256',process.env.ASSISTANT_CLIENT_HASH_SECRET||process.env.SUPABASE_SERVICE_ROLE_KEY).update(req.ip||'unknown').digest('hex');
+    const rate=await supabase.rpc('check_assistant_client_rate',{p_client_hash:clientHash});
+    if(rate.error)throw rate.error;
+    if(rate.data!==true)return res.status(429).json({error:'Too many requests. Please wait a minute.'});
     if (![businessId,serviceId,requestId].every(id=>typeof id==='string'&&/^[0-9a-f-]{36}$/i.test(id))) {
       return res.status(400).json({error:'Invalid booking identifiers'});
     }
@@ -417,15 +421,9 @@ app.post('/booking-requests', async (req,res) => {
     ]);
     if(profileError||serviceError) throw profileError||serviceError;
     if(!business||!service) return res.status(404).json({error:'Business or service unavailable'});
-    if (business.plan==='14-day trial') {
-      if(!business.trial_active||Date.parse(business.trial_ends_at||'')<=Date.now()) {
-        return res.status(403).json({error:'Business is not accepting bookings'});
-      }
-    } else {
-      const {data:paid,error:paidError}=await supabase.rpc('has_current_paid_entitlement',{p_business_id:businessId});
-      if(paidError) throw paidError;
-      if(!paid) return res.status(403).json({error:'Business is not accepting bookings'});
-    }
+    const {data:eligible,error:eligibilityError}=await supabase.rpc('has_active_premium_plan',{p_business_id:businessId});
+    if(eligibilityError)throw eligibilityError;
+    if(!eligible)return res.status(403).json({error:'Business is not accepting online booking requests'});
     const duration=serviceDurationMinutes(service.duration);
     if(!duration) return res.status(422).json({error:'Business must set a valid service duration before bookings are accepted'});
     let slot;
@@ -453,6 +451,7 @@ attachOwnerUsageRoute(app, supabase);
 app.get('/health', (req,res) => res.json({status:'alive'}));
 app.get('/health/ready', async(req,res)=>{
   if(!supabase)return res.status(503).json({status:'not_ready',reason:'database'});
+  if(!process.env.GROQ_API_KEY)return res.status(503).json({status:'not_ready',reason:'assistant_configuration'});
   try {
     const {data,error}=await supabase.rpc('production_billing_ready');
     if(error||data!==true)throw new Error('required migrations unavailable');

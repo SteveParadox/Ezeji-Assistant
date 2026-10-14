@@ -22,16 +22,17 @@ export async function assistantAuth(req,db,businessId,ownerOnly=false) {
 }
 export function attachAssistantRoutes(app,db,{generate=createGroqClient()}={}) {
   const service=createAssistantService({db,generate});
+  const checkClient=async req=>{
+    const clientHash=crypto.createHmac('sha256',process.env.ASSISTANT_CLIENT_HASH_SECRET||process.env.SUPABASE_SERVICE_ROLE_KEY||'development-only').update(req.ip||'unknown').digest('hex');
+    if(!await service.rpc('check_assistant_client_rate',{p_client_hash:clientHash}))throw fail(429,'Too many messages. Please wait a minute.');
+  };
   const send=preview=>handle(async(req,res)=>{
     if(!db)throw fail(503,'Assistant database unavailable.');
     const b=req.body||{};
     if(!UUID.test(b.businessId||'')||!UUID.test(b.requestId||''))throw fail(400,'Valid business and request identifiers are required.');
-    if(!preview){
-      const clientHash=crypto.createHmac('sha256',process.env.ASSISTANT_CLIENT_HASH_SECRET||process.env.SUPABASE_SERVICE_ROLE_KEY||'development-only').update(req.ip||'unknown').digest('hex');
-      const rate=await service.rpc('check_assistant_client_rate',{p_client_hash:clientHash});
-      if(!rate)throw fail(429,'Too many messages. Please wait a minute.');
-    }
+    if(!preview)await checkClient(req);
     const owner=preview?await assistantAuth(req,db,b.businessId,true):null;
+    if(!SESSION_TOKEN.test(b.sessionToken||''))throw fail(400,'A conversation session is required. Refresh the chat and try again.');
     // A legacy client history/prompt can never enter the model context.
     const result=await service.process({businessId:b.businessId,channel:preview?'preview':'web',sessionToken:b.sessionToken,
       identity:preview?`${owner.id}:${b.sessionToken||''}`:undefined,requestId:b.requestId,message:b.message});
@@ -39,6 +40,15 @@ export function attachAssistantRoutes(app,db,{generate=createGroqClient()}={}) {
     const publicResult=Object.fromEntries(Object.entries(result).filter(([key])=>!['usage','model','latencyMs','attempts','estimatedCostUsd','bookingDraft','bookingAction'].includes(key)));
     return res.json(publicResult);
   });
+  app.post('/assistant-booking-request',handle(async(req,res)=>{
+    if(!db)throw fail(503,'Booking database unavailable.');
+    const b=req.body||{};
+    if(!UUID.test(b.businessId||'')||!UUID.test(b.requestId||'')||!SESSION_TOKEN.test(b.sessionToken||''))throw fail(400,'Valid booking identity is required.');
+    await checkClient(req);
+    const outcome=await service.process({businessId:b.businessId,sessionToken:b.sessionToken,requestId:b.requestId,message:'Submit the reviewed booking request',bookingSubmission:{serviceId:b.serviceId,customerName:b.customerName,customerContact:b.customerContact,startAt:b.startAt,confirmed:b.confirmed}});
+    if(outcome.bookingStatus!=='pending'||!outcome.bookingId)throw fail(503,'Pending booking was not verified.');
+    res.status(201).json({bookingId:outcome.bookingId,status:'pending',message:outcome.reply});
+  }));
   app.post('/assistant-reply',send(false));app.post('/assistant-preview',send(true));
   async function customerThread(req,preview=false) {
     if(!db)throw fail(503,'Conversation service unavailable.');

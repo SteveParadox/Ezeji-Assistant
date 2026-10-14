@@ -6,8 +6,8 @@ test("new customer message is not copied into prior conversation history", () =>
   const previous = [{ from: "ai", text: "Hello" }, { from: "customer", text: "Price?" }];
   const result = buildChatSendPayload("What time tomorrow?", { id: "b1", business: "Salon" }, previous, {}, false);
   assert.equal(result.message, "What time tomorrow?");
-  assert.deepEqual(result.conversation, previous);
-  assert.equal(result.conversation.filter((msg) => msg.text === result.message).length, 0);
+  assert.equal(result.conversation, undefined);
+  assert.equal(result.systemPrompt, undefined);
 });
 
 test("preview preserves business id and separates preview request flag", () => {

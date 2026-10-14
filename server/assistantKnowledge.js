@@ -1,5 +1,6 @@
+import {assistantDatabaseRequest} from './assistantDatabaseRequest.js';
 export const PROFILE_KNOWLEDGE_FIELDS = 'id,business,business_type,custom_business_type,plan,service_name,price,currency,hours,hours_json,timezone,description,address,city_state_zip,contact_phone,public_contact_email,website,assistant_name,tone,greeting,escalation_keywords,assistant_active,booking_policy,cancellation_policy,refund_policy,language_preferences';
-const text = (value, max = 2000) => typeof value === 'string' ? value.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').trim().slice(0, max) : '';
+const text = (value, max = 2000) => typeof value === 'string' ? Array.from(value).filter(char=>char.charCodeAt(0)>=32||['\n','\t','\r'].includes(char)).join('').trim().slice(0, max) : '';
 export function normalizeKnowledge(profile = {}, services = [], faqs = []) {
   const premium = ['Professional', 'Business'].includes(profile.plan);
   return {
@@ -18,9 +19,9 @@ export function normalizeKnowledge(profile = {}, services = [], faqs = []) {
 export async function loadBusinessKnowledge(db, businessId) {
   // No process-local cache: owner edits and deletions affect the next request.
   const [p, s, f] = await Promise.all([
-    db.from('profiles').select(PROFILE_KNOWLEDGE_FIELDS).eq('id', businessId).maybeSingle(),
-    db.from('services').select('id,name,price,duration,description').eq('business_id', businessId).order('created_at').limit(60),
-    db.from('faqs').select('question,answer').eq('business_id', businessId).order('created_at').limit(60),
+    assistantDatabaseRequest(db.from('profiles').select(PROFILE_KNOWLEDGE_FIELDS).eq('id', businessId).maybeSingle()),
+    assistantDatabaseRequest(db.from('services').select('id,name,price,duration,description').eq('business_id', businessId).order('created_at').limit(60)),
+    assistantDatabaseRequest(db.from('faqs').select('question,answer').eq('business_id', businessId).order('created_at').limit(60)),
   ]);
   if (p.error || s.error || f.error) throw Object.assign(new Error('Business information unavailable'), { status: 503 });
   if (!p.data) throw Object.assign(new Error('Business not found'), { status: 404 });
@@ -39,5 +40,5 @@ export function assistantReadiness(p, services = []) {
   if (!p.description?.trim()) missing.push('Business description');
   if (!services.length && !p.service_name?.trim()) missing.push('Services');
   if (!p.contact_phone && !p.public_contact_email) missing.push('Public contact details');
-  return { ready: missing.length === 0, missing, bookingReady: !!p.hours_json?.some(d => !d.closed && d.open && d.close) && services.some(s => s.duration) };
+  return { ready: missing.length === 0, missing, bookingReady: !!p.hours_json?.some(d => !d.closed && d.open && d.close) && services.some(s => /^(\d{1,3})\s*(min|mins|minute|minutes|h|hr|hour|hours)$/.test(s.duration||'')) };
 }

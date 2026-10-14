@@ -8,7 +8,7 @@ export function policyIntent(message, knowledge, thread) {
     : {intent:'HUMAN_HANDOFF',reply:'Automated replies are stopped. Send START if you want to enable them again.',suppressDelivery:true};
   if (thread.status === 'human') return {intent:'HUMAN_HANDOFF',reply:'This conversation is awaiting staff review. Automated answers are paused; staff response timing is not guaranteed.'};
   const configured = String(knowledge.style?.escalationTopics || '').split(',').map(x=>x.trim().toLowerCase()).filter(x=>x.length>=3);
-  if (/\b(human|real person|speak (to|with) (someone|staff|a person)|staff please|customer support|complaint|complain|refund|charged twice|payment issue)\b/i.test(message) || configured.some(x=>lower.includes(x))) {
+  if (/\b(human|real person|speak (to|with) (someone|staff|a person)|staff please|customer support|complaint|complain|refund (?:me|my)|(?:want|need|request) (?:a )?refund|charged twice|payment issue)\b/i.test(message) || configured.some(x=>lower.includes(x))) {
     return {intent: /complain|refund|payment|charged/i.test(message)?'COMPLAINT':'HUMAN_HANDOFF',reply:'Your request for staff review has been recorded in this conversation. Automated replies are paused. Staff response timing is not guaranteed.', escalated:true, escalationReason: /complain|refund|payment|charged/i.test(message)?'Complaint or sensitive payment enquiry':'Customer requested staff'};
   }
   return null;

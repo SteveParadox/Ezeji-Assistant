@@ -1,14 +1,15 @@
 import {PGlite} from '@electric-sql/pglite';
 import {btree_gist} from '@electric-sql/pglite/contrib/btree_gist';
 import {readdir,readFile} from 'node:fs/promises';
-export async function assistantDatabase() {
+export async function assistantDatabase({legacyOwners=[]}={}) {
  const pg=new PGlite({extensions:{btree_gist}});
  await pg.exec(`create schema auth; create role anon; create role authenticated; create role service_role;
- create table auth.users(id uuid primary key);
+ create table auth.users(id uuid primary key,raw_user_meta_data jsonb not null default '{}');
  create function auth.uid() returns uuid language sql stable as 'select nullif(current_setting(''request.jwt.claim.sub'',true),'''')::uuid';
  create function auth.role() returns text language sql stable as 'select current_setting(''request.jwt.claim.role'',true)';
  set request.jwt.claim.role='service_role';`);
  for(const filename of (await readdir('supabase/migrations')).filter(f=>f.endsWith('.sql')).sort()) {
+  if(filename==='202610140001_assistant_conversations.sql')for(const owner of legacyOwners){await pg.query('insert into auth.users(id,raw_user_meta_data) values($1,$2)',[owner.id,JSON.stringify({assistant_live:owner.active})]);await pg.query("insert into profiles(id,business) values($1,'Legacy business')",[owner.id]);}
   try{await pg.exec(await readFile(`supabase/migrations/${filename}`,'utf8'));}catch(e){throw new Error(`${filename}: ${e.message}`);}
  }
  const db={

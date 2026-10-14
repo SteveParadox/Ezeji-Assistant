@@ -1,7 +1,10 @@
 import crypto from 'node:crypto';
+import {assistantDatabaseRequest} from './assistantDatabaseRequest.js';
+import {serviceDurationMinutes,validateBookingWindow} from './bookingValidation.js';
 import { loadBusinessKnowledge } from './assistantKnowledge.js';
 import { buildAssistantMessages } from './assistantPrompt.js';
 import { bookingDialogue, selectedService } from './assistantBooking.js';
+import { factualReply } from './assistantFacts.js';
 import { policyIntent, validateAssistantOutput } from './assistantPolicy.js';
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const SESSION_TOKEN = /^[a-f0-9]{64}$/;
@@ -10,7 +13,7 @@ export const hash = value => crypto.createHash('sha256').update(value).digest('h
 const error = (message, status=503, code='ASSISTANT_UNAVAILABLE') => Object.assign(new Error(message),{status,code});
 export function createAssistantService({ db, generate, knowledgeLoader=loadBusinessKnowledge, logger=console }) {
   async function rpc(name,args) {
-    const result=await db.rpc(name,args);
+    const result=await assistantDatabaseRequest(db.rpc(name,args));
     if(result.error) {
       const code=result.error.code;
       throw error(['42501','P0001'].includes(code)?'Assistant unavailable: paused, expired or allowance exhausted.':code==='P0004'?'Assistant is busy. Please retry shortly.':code==='P0006'?'A message is already processing in this conversation.':code==='23514'?'This request identifier belongs to a different message.':'Conversation service temporarily unavailable.',
@@ -27,9 +30,9 @@ export function createAssistantService({ db, generate, knowledgeLoader=loadBusin
     return {thread:Array.isArray(resolved)?resolved[0]:resolved,sessionToken:token};
   }
   async function history(thread,excludeRequestId) {
-    let query=db.from('assistant_messages').select('id,role,content,created_at,sequence,delivery_status,request_id').eq('business_id',thread.business_id).eq('thread_id',thread.id);
+    let query=db.from('assistant_message_history').select('id,role,content,created_at,sequence,delivery_status,request_id,request_key').eq('business_id',thread.business_id).eq('thread_id',thread.id);
     if(excludeRequestId)query=query.neq('request_id',excludeRequestId);
-    const result=await query.order('sequence',{ascending:false}).limit(24);
+    const result=await assistantDatabaseRequest(query.order('sequence',{ascending:false}).limit(24));
     if(result.error)throw error('Conversation history unavailable');
     return (result.data||[]).reverse();
   }
@@ -39,10 +42,19 @@ export function createAssistantService({ db, generate, knowledgeLoader=loadBusin
       try{return await rpc(name,args);}catch(e){if(attempt===2||e.status<500)throw e;}
     }
   }
-  async function process({businessId,channel='web',sessionToken,identity,requestId,message,metadata={},signal}) {
+  async function process({businessId,channel='web',sessionToken,identity,requestId,message,metadata={},signal,bookingSubmission}) {
     if(typeof message!=='string'||!message.trim()||message.length>2000) throw error('Enter a message of 2,000 characters or fewer.',400);
     if(typeof requestId!=='string'||requestId.length<12||requestId.length>120) throw error('A stable request identifier is required.',400);
     const {thread,sessionToken:token}=await resolve({businessId,channel,sessionToken,identity});
+    const inputHash=hash(message.trim()+(bookingSubmission?JSON.stringify(bookingSubmission):''));
+    if(bookingSubmission) {
+      const previous=await db.from('assistant_requests').select('id,status,message_hash,outcome').eq('business_id',businessId).eq('thread_id',thread.id).eq('request_key',requestId).maybeSingle();
+      if(previous.error)throw error('Booking replay lookup unavailable');
+      if(previous.data?.status==='committed') {
+        if(previous.data.message_hash!==inputHash)throw error('Booking request identifier payload changed.',409);
+        return {...previous.data.outcome,sessionToken:token,conversationId:thread.id,requestId,correlationId:previous.data.id};
+      }
+    }
     const {profile,knowledge}=await knowledgeLoader(db,businessId);
     let controlled=policyIntent(message,knowledge,thread);
     if(!controlled&&/\b(?:booking status|my (?:booking|appointment)|status of (?:my |the )?(?:booking|appointment))\b/i.test(message)) {
@@ -52,8 +64,15 @@ export function createAssistantService({ db, generate, knowledgeLoader=loadBusin
         controlled=booking.data?{intent:'BOOKING_STATUS',reply:`Your request ${booking.data.id} is ${booking.data.status}. ${booking.data.status==='pending'?'Staff confirmation is still required.':''}`}:{intent:'BOOKING_STATUS',reply:'No booking request is available for this conversation. Contact staff for help.'};
       }else controlled={intent:'BOOKING_STATUS',reply:'No submitted booking request belongs to this conversation. Contact staff if you booked using another channel.'};
     }
-    controlled=controlled || bookingDialogue({message,knowledge,profile,thread});
-    const claim=await rpc('claim_assistant_request',{p_business_id:businessId,p_thread_id:thread.id,p_request_key:requestId,p_message:message.trim(),p_message_hash:hash(message.trim()),p_needs_model:!controlled,p_metadata:metadata});
+    if(bookingSubmission) {
+      const op=bookingSubmission;
+      const svc=knowledge.services.find(s=>s.id===op.serviceId);
+      if(channel==='preview'||op.confirmed!==true||!svc||!['Professional','Business'].includes(profile.plan))throw error('Booking submission is unavailable.',403);
+      if(typeof op.customerName!=='string'||op.customerName.trim().length<2||op.customerName.length>120||typeof op.customerContact!=='string'||op.customerContact.trim().length<5||op.customerContact.length>160)throw error('Valid customer name and contact are required.',422);
+      let slot;try{slot=validateBookingWindow({startAt:op.startAt,durationMinutes:serviceDurationMinutes(svc.duration),timezone:profile.timezone,hoursJson:profile.hours_json});}catch(e){throw error(e.message,422);}
+      controlled={reply:'Booking request awaiting submission.',bookingIntent:true,intent:'BOOKING_REQUEST',bookingDraft:null,bookingAction:{serviceId:svc.id,name:op.customerName.trim(),contact:op.customerContact.trim(),...slot}};
+    }else controlled=controlled || bookingDialogue({message,knowledge,profile,thread});
+    const claim=await rpc('claim_assistant_request',{p_business_id:businessId,p_thread_id:thread.id,p_request_key:requestId,p_message:message.trim(),p_message_hash:inputHash,p_needs_model:!controlled,p_metadata:metadata});
     const req=claim.request;
     const wrap=result=>({...result,sessionToken:token,conversationId:thread.id,requestId,correlationId:req.id,preview:channel==='preview'});
     if(claim.state==='committed')return wrap(req.outcome);
@@ -71,6 +90,7 @@ export function createAssistantService({ db, generate, knowledgeLoader=loadBusin
         const validated=validateAssistantOutput(result,knowledge);
         const booking=bookingDialogue({message,knowledge,profile,thread,intent:validated.intent});
         if(booking)Object.assign(validated,booking);
+        else {const facts=factualReply({message,intent:validated.intent,knowledge,thread});if(facts)Object.assign(validated,facts);}
         outcome={...validated,provider:result.provider,usage:result.usage,model:result.model,latencyMs:result.latencyMs,attempts:result.attempts,estimatedCostUsd:result.estimatedCostUsd};
         if(validated.escalationSuggested&&!validated.grounded)outcome.escalationSuggested=false;
         if(validated.escalationSuggested&&channel!=='preview') {
@@ -86,7 +106,7 @@ export function createAssistantService({ db, generate, knowledgeLoader=loadBusin
       const checkpoint=await durable('checkpoint_assistant_reply',{p_request_id:req.id,p_outcome:outcome});
       if(!checkpoint)throw error('Response recovery requires review');
       const committed=await durable('commit_assistant_reply',{p_request_id:req.id});
-      logger.info?.('assistant.completed',{correlationId:req.id,channel,provider:outcome.provider,latencyMs:outcome.latencyMs,grounded:outcome.grounded});
+      logger.info?.('assistant.completed',{correlationId:req.id,channel,provider:outcome.provider,latencyMs:outcome.latencyMs,grounded:outcome.grounded,usage:outcome.usage,attempts:outcome.attempts,estimatedCostUsd:outcome.estimatedCostUsd});
       return wrap(committed);
     } catch(e) {
       if(!generated) {

@@ -266,3 +266,14 @@
 }
 .confirm-dialog .btn--amber { background: var(--amber); color: var(--ink); border: 0; }
 .plan-entitlements { margin: 16px 0; padding-left: 18px; color: var(--paper-muted); font-size: 12px; line-height: 1.8; }
+/* Customer and preview chat share the existing palette and accessible controls. */
+.chat-bubble { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-timestamp { display: block; margin-top: 6px; font-size: 10px; opacity: .72; }
+.widget-input-row textarea.widget-input { resize: vertical; min-height: 44px; max-height: 120px; }
+.widget-body { scroll-behavior: auto; }
+.assistant-configuration { display: grid; gap: 20px; min-width: 0; }
+.assistant-policies { margin-top: 18px; }
+.assistant-policies summary { color: var(--text); cursor: pointer; padding: 10px 0; min-height: 44px; }
+.assistant-policies[open] summary { margin-bottom: 12px; }
+.assistant-policy-grid { display: grid; gap: 14px; grid-template-columns: repeat(2,minmax(0,1fr)); }
+@media (max-width: 600px) { .assistant-policy-grid { grid-template-columns: 1fr; } }
