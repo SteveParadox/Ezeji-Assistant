@@ -2,6 +2,8 @@
 
 Draft PR: https://github.com/SteveParadox/Ezeji-Assistant/pull/7
 Branch: `codex/reliable-business-assistant`
+**Follow-up corrective audit:** [14 October corrections](ASSISTANT_CORRECTIVE_AUDIT_20261014.md) supersede the historical counts and six-migration rollout below. Current implementation requires migrations 001–009 and coordinated API/worker deployment.
+
 Baseline: main `1b3bef6fff0793b71bfd0fa00f75a399ebe03985`, after merged premium UI PR #6. No open PRs existed when inspected. The existing dark/amber/semantic palette is unchanged.
 
 ## Confirmed initial defects
@@ -72,7 +74,7 @@ Chat records expire after 30 days; preview after one day. The maintenance task d
 - `npm run test:browser`: **54 passed** in the final full run, including the restored-ID regression. Fixtures run the actual React UI; they do not claim live provider E2E verification. Chromium 153 was extracted into a temporary runtime because default browser installation was unavailable. Representative mobile/desktop screenshots were inspected; WCAG A/AA automation and all eight widths are covered.
 - Express starts and `/health` returns 200. With no service credentials, `/health/ready` correctly returns 503. Worker/maintenance syntax checks pass; missing required settings fail startup. No live worker was pointed at production.
 
-A separate post-implementation read-through found and corrected checkpoint replay acknowledgement handling, cross-tenant usage references, deletion/claim races, late restore/voice results, draft scope leakage, obsolete error notices, booking-form/session separation, expired WhatsApp session behavior, opt-out delivery, profile-validation interference with legacy billing, and timestamp-sensitive browser assertions. No known internal release-blocking defect remains; the external/native acceptance gates below remain open.
+A separate post-implementation read-through found and corrected checkpoint replay acknowledgement handling, cross-tenant usage references, deletion/claim races, late restore/voice results, draft scope leakage, obsolete error notices, booking-form/session separation, expired WhatsApp session behavior, opt-out delivery, profile-validation interference with legacy billing, and timestamp-sensitive browser assertions. This was the initial audit result. The subsequent [corrective audit](ASSISTANT_CORRECTIVE_AUDIT_20261014.md) found and fixed further recovery/delivery/replay defects; its results and additional rollout requirements take precedence. External/native acceptance gates remain open.
 
 ## Deployment and release gates
 
